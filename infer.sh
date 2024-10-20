@@ -1,0 +1,21 @@
+TEST_DIR=/share/huangrenyuan/dataset/1024_resize_crop_sf4_patch_test/lq
+python infer.py \
+    --pretrained_model_name_or_path /share/huangrenyuan/model_zoo/diffusion/stable-diffusion-xl-base-1.0 \
+    --previewer_lora_path /share/huangrenyuan/logs/1024_64_token_dino_ipa_lcmLora_resampler/checkpoint-52000 \
+    --vision_encoder_path /share/huangrenyuan/model_zoo/vis_backbone/dinov2_large \
+    --adapter_model_path /share/huangrenyuan/logs/1024_64_dino_ipa_jdb/cfg_checkpoint-70000/adapter_ckpt.pt \
+    --instantir_path /share/huangrenyuan/logs/1024_instantir_Aggregator2_newLCM_8xSR/checkpoint-81000 \
+    --seed 3467 \
+    --denoising_start 1000 \
+    --num_inference_steps 30 \
+    --out_path /share/huangrenyuan/samples/realworld_benchmark/realsr \
+    --prompt "" \
+    --test_path /share/huangrenyuan/samples/realworld_benchmark/realsr/1024_instantir_Aggregator2_newLCM_4xSR \
+    --post_fix 8xSR_52Klora
+    --validation_image "./examples/0.jpg" "./examples/0.jpg" "./examples/0.jpg" "./examples/0.jpg"
+    --validation_image $TEST_DIR/0/input/1214.png $TEST_DIR/2/input/1214.png $TEST_DIR/3/input/1214.png $TEST_DIR/4/input/1214.png $TEST_DIR/5/input/1214.png
+    --validation_image /share/huangrenyuan/samples/test_jdb/3/input/1214.png /share/huangrenyuan/samples/test_jdb/0/input/1214.png /share/huangrenyuan/samples/test_jdb/1/1214.png
+    --validation_image "/share/huangrenyuan/dataset/1024_resize_crop_sf8_val/lq/1122.png" "/share/huangrenyuan/dataset/1024_resize_crop_sf8_val/lq/1123.png" "/share/huangrenyuan/dataset/1024_resize_crop_sf8_val/lq/1124.png" "/share/huangrenyuan/dataset/1024_resize_crop_sf8_val/lq/113.png"
+    --validation_image "./examples/0.jpg" "./examples/1024_lq_4xSR.png" "./examples/1024_lq_8xSR.png" "./examples/1024_lq_heavy.png" "./examples/lq_heavy.png"
+    --save_lcm_row
+    --pretrained_lcm_lora_path /share/huangrenyuan/logs/1024_64_token_dino_ipa_lcmLora_resampler/checkpoint-52000

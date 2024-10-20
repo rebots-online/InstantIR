@@ -1,0 +1,9 @@
+datasets:
+  - dataset_folder: 'ffhq'
+    dataset_weight: 0.1
+  - dataset_folder: 'DIV2K'
+    dataset_weight: 0.3
+  - dataset_folder: 'LSDIR'
+    dataset_weight: 0.3
+  - dataset_folder: 'Flickr2K'
+    dataset_weight: 0.1
