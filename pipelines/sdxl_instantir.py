@@ -53,6 +53,7 @@ from diffusers.utils import (
     replace_example_docstring,
     scale_lora_layers,
     unscale_lora_layers,
+    convert_unet_state_dict_to_peft
 )
 from diffusers.utils.torch_utils import is_compiled_module, is_torch_version, randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline, StableDiffusionMixin
@@ -62,6 +63,7 @@ from diffusers.pipelines.stable_diffusion_xl.pipeline_output import StableDiffus
 if is_invisible_watermark_available():
     from diffusers.pipelines.stable_diffusion_xl.watermark import StableDiffusionXLWatermarker
 
+from peft import LoraConfig, set_peft_model_state_dict
 from module.aggregator import Aggregator
 
 
@@ -299,8 +301,8 @@ class InstantIRPipeline(
         tokenizer: CLIPTokenizer,
         tokenizer_2: CLIPTokenizer,
         unet: UNet2DConditionModel,
-        aggregator: Aggregator,
         scheduler: KarrasDiffusionSchedulers,
+        aggregator: Aggregator = None,
         force_zeros_for_empty_prompt: bool = True,
         add_watermarker: Optional[bool] = None,
         feature_extractor: CLIPImageProcessor = None,
@@ -308,6 +310,8 @@ class InstantIRPipeline(
     ):
         super().__init__()
 
+        if aggregator is None:
+            aggregator = Aggregator.from_unet(unet)
         remove_attn2(aggregator)
 
         self.register_modules(
@@ -336,6 +340,46 @@ class InstantIRPipeline(
 
         self.register_to_config(force_zeros_for_empty_prompt=force_zeros_for_empty_prompt)
 
+    def prepare_previewers(self, previewer_lora_path: str):
+        lora_state_dict, alpha_dict = self.lora_state_dict(previewer_lora_path, weight_name="previewer_lora_weights.bin")
+        unet_state_dict = {
+            f'{k.replace("unet.", "")}': v for k, v in lora_state_dict.items() if k.startswith("unet.")
+        }
+        unet_state_dict = convert_unet_state_dict_to_peft(unet_state_dict)
+        lora_state_dict = dict()
+        for k, v in unet_state_dict.items():
+            if "ip" in k:
+                k = k.replace("attn2", "attn2.processor")
+                lora_state_dict[k] = v
+            else:
+                lora_state_dict[k] = v
+        if alpha_dict:
+            lora_alpha = next(iter(alpha_dict.values()))
+        else:
+            lora_alpha = 1
+        logger.info(f"use lora alpha {lora_alpha}")
+        lora_config = LoraConfig(
+            r=64,
+            target_modules=PREVIEWER_LORA_MODULES,
+            lora_alpha=lora_alpha,
+            lora_dropout=0.0,
+        )
+
+        self.unet.add_adapter(lora_config)
+        incompatible_keys = set_peft_model_state_dict(self.unet, lora_state_dict, adapter_name="default")
+        if incompatible_keys is not None:
+            # check only for unexpected keys
+            unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
+            missing_keys = getattr(incompatible_keys, "missing_keys", None)
+            if unexpected_keys:
+                raise ValueError(
+                    f"Loading adapter weights from state_dict led to unexpected keys not found in the model: "
+                    f" {unexpected_keys}. "
+                )
+        self.unet.disable_adapters()
+
+        return lora_alpha
+    
     # Copied from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl.StableDiffusionXLPipeline.encode_prompt
     def encode_prompt(
         self,
@@ -1011,10 +1055,10 @@ class InstantIRPipeline(
         image: PipelineImageInput = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
-        num_inference_steps: int = 50,
+        num_inference_steps: int = 30,
         timesteps: List[int] = None,
         denoising_end: Optional[float] = None,
-        guidance_scale: float = 5.0,
+        guidance_scale: float = 7.0,
         negative_prompt: Optional[Union[str, List[str]]] = None,
         negative_prompt_2: Optional[Union[str, List[str]]] = None,
         num_images_per_prompt: Optional[int] = 1,

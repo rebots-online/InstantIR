@@ -24,7 +24,7 @@ from transformers import (
     AutoImageProcessor, AutoModel
 )
 
-from module.ip_adapter.utils import load_ip_adapter_to_pipe, revise_state_dict, init_ip_adapter_in_unet
+from module.ip_adapter.utils import load_ip_adapter_to_pipe, revise_state_dict, init_adapter_in_unet
 from module.ip_adapter.resampler import Resampler
 from module.aggregator import Aggregator
 from pipelines.sdxl_instantir import InstantIRPipeline, PREVIEWER_LORA_MODULES, LCM_LORA_MODUELS
@@ -114,99 +114,37 @@ def main(args, device):
     )
     unet = pipe.unet
 
-    # Aggregator.
-    aggregator = Aggregator.from_unet(unet)
-
     # Image prompt projector.
     print("Loading LQ-Adapter...")
     image_proj_model = Resampler(
-        dim=1280,
-        depth=4,
-        dim_head=64,
-        heads=20,
-        num_queries=args.adapter_tokens,
         embedding_dim=image_encoder.config.hidden_size,
         output_dim=unet.config.cross_attention_dim,
-        ff_mult=4
     )
     adapter_path = args.adapter_model_path if args.adapter_model_path is not None else os.path.join(args.instantir_path, 'adapter_ckpt.pt')
-    init_ip_adapter_in_unet(
+    init_adapter_in_unet(
         unet,
         image_proj_model,
         adapter_path,
-        adapter_tokens=args.adapter_tokens,
-        use_lcm=False,
-        use_adaln=True,
-        use_external_kv=False,
     )
 
     pipe = InstantIRPipeline(
             pipe.vae, pipe.text_encoder, pipe.text_encoder_2, pipe.tokenizer, pipe.tokenizer_2,
-            unet, aggregator, pipe.scheduler, feature_extractor=image_processor, image_encoder=image_encoder,
+            unet, pipe.scheduler, feature_extractor=image_processor, image_encoder=image_encoder,
     ).to(device)
     if args.previewer_lora_path is not None:
-        lora_state_dict, alpha_dict = StableDiffusionXLPipeline.lora_state_dict(args.previewer_lora_path)
-        unet_state_dict = {
-            f'{k.replace("unet.", "")}': v for k, v in lora_state_dict.items() if k.startswith("unet.")
-        }
-        unet_state_dict = convert_unet_state_dict_to_peft(unet_state_dict)
-        lora_state_dict = dict()
-        for k, v in unet_state_dict.items():
-            if "ip" in k:
-                k = k.replace("attn2", "attn2.processor")
-                lora_state_dict[k] = v
-            else:
-                lora_state_dict[k] = v
-        if alpha_dict:
-            lora_alpha = next(iter(alpha_dict.values()))
-        else:
-            lora_alpha = 1
+        lora_alpha = pipe.prepare_previewers(args.previewer_lora_path)
         print(f"use lora alpha {lora_alpha}")
-    # 9. Add LoRA to the student U-Net, only the LoRA projection matrix will be updated by the optimizer.
-    lora_config = LoraConfig(
-        r=64,
-        target_modules=PREVIEWER_LORA_MODULES,
-        lora_alpha=lora_alpha,
-        lora_dropout=0.0,
-    )
-
-    unet.add_adapter(lora_config)
-    if args.previewer_lora_path is not None:
-        incompatible_keys = set_peft_model_state_dict(unet, lora_state_dict, adapter_name="default")
-        if incompatible_keys is not None:
-            # check only for unexpected keys
-            unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
-            missing_keys = getattr(incompatible_keys, "missing_keys", None)
-            if unexpected_keys:
-                raise ValueError(
-                    f"Loading adapter weights from state_dict led to unexpected keys not found in the model: "
-                    f" {unexpected_keys}. "
-                )
-            # for k in missing_keys:
-            #     if "lora" in k:
-            #         raise ValueError(
-            #             f"Loading adapter weights from state_dict led to missing keys: {missing_keys}. "
-            #         )
     unet.to(dtype=torch.float16)
-    unet.disable_adapters()
-    # pipe.scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
+    pipe.scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
     lcm_scheduler = LCMSingleStepScheduler.from_config(pipe.scheduler.config)
 
     # Load weights.
     print("Loading checkpoint...")
     pretrained_state_dict = torch.load(os.path.join(args.instantir_path, "aggregator_ckpt.pt"), map_location="cpu")
-    aggregator.load_state_dict(pretrained_state_dict, strict=True)
-    aggregator.to(dtype=torch.float16)
+    pipe.aggregator.load_state_dict(pretrained_state_dict, strict=True)
+    pipe.aggregator.to(dtype=torch.float16)
 
     #################### Restoration ####################
-
-    # deg_pipeline = RealESRGANDegradation(device=device, resolution=args.resolution)
-    transform = transforms.Compose([
-        transforms.Resize(64, interpolation=transforms.InterpolationMode.BILINEAR),
-        transforms.Resize(768, interpolation=transforms.InterpolationMode.BILINEAR),
-        # transforms.CenterCrop(128),
-        # transforms.Resize(args.resolution, interpolation=transforms.InterpolationMode.BILINEAR),
-    ])
 
     post_fix = f"_{args.post_fix}" if args.post_fix else ""
     post_fix = args.instantir_path.split("/")[-2]+f"{post_fix}"
@@ -227,61 +165,34 @@ def main(args, device):
     if len(lq_batch) > 0:
         lq_files.append(lq_batch)
 
-    # prompts = json.load(open(os.path.join(args.test_path, "prompts.json")))
-
     for lq_batch in lq_files:
         generator = torch.Generator(device=device).manual_seed(args.seed)
         pil_lqs = [Image.open(os.path.join(args.test_path, 'input', file)) for file in lq_batch]
         lq = [lq_pil.convert("RGB") for lq_pil in pil_lqs]
-        # prompt = [prompts[file] for file in lq_batch]
-
-        # timesteps = [
-        #     i * (args.denoising_start//args.num_inference_steps) + pipe.scheduler.config.steps_offset for i in range(0, args.num_inference_steps)
-        # ]
-        # timesteps = timesteps[::-1]
-        # pipe.scheduler.set_timesteps(args.num_inference_steps, device)
-        # timesteps = pipe.scheduler.timesteps
-        # start_timestep = timesteps[0]
-        lq_pt = [transforms.ToTensor()(lq_pil) for lq_pil in lq]
-        # with torch.no_grad():
-        #     gt_pt = torch.stack(lq_pt).to(device, dtype=pipe.vae.dtype)
-        #     gt_pt = gt_pt * 2.0 - 1.0
-        #     gt_latents = pipe.vae.encode(gt_pt).latent_dist.sample()
-        #     gt_latents = gt_latents * pipe.vae.config.scaling_factor
-
-        # InstantStyle magic.
-        # scale = {
-        #     "down": {"block_2": [0.0, 1.0]},
-        #     "up": {"block_0": [0.0, 1.0, 0.0]},
-        # }
-        # pipe.set_ip_adapter_scale(scale)
-        # prompt = 'Cinematic, High Contrast, highly detailed, taken using a Canon EOS R camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing, hyper sharpness, perfect without deformations.'
-        # neg_prompt = 'painting, oil painting, illustration, drawing, art, sketch, oil painting, cartoon, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, over-smooth'
+        timesteps = None
+        if args.denoising_start < 1000:
+            timesteps = [
+                i * (args.denoising_start//args.num_inference_steps) + pipe.scheduler.config.steps_offset for i in range(0, args.num_inference_steps)
+            ]
+            timesteps = timesteps[::-1]
+            pipe.scheduler.set_timesteps(args.num_inference_steps, device)
+            timesteps = pipe.scheduler.timesteps
         prompt = args.prompt
-        print(type(prompt))
         prompt = prompt*len(lq)
-        neg_prompt = [""]*len(lq)
+        neg_prompt = args.neg_prompt
+        neg_prompt = neg_prompt*len(lq)
         image = pipe(
             prompt=prompt,
             image=lq,
             ip_adapter_image=[lq],
             num_inference_steps=args.num_inference_steps,
             generator=generator,
-            # timesteps=timesteps,
-            controlnet_conditioning_scale=1.0,
-            height=args.resolution,
-            width=args.resolution,
-            # negative_original_size=(256,256),
-            # negative_target_size=(args.resolution,args.resolution),
+            timesteps=timesteps,
             negative_prompt=neg_prompt,
             guidance_scale=7.0,
             previewer_scheduler=lcm_scheduler,
             return_dict=False,
-            # gt_latent = gt_latents,
-            # output_type='pt'
         )[0]
-        # norm_image = adaptive_instance_normalization(image, torch.stack(lq_pt).to(device, dtype=image.dtype))
-        # image = tensor_to_pil(norm_image)
 
         if args.save_preview_row:
             for i, lcm_image in enumerate(image[1]):
@@ -397,6 +308,16 @@ if __name__ == "__main__":
         help=(
             "A set of prompts for creative restoration. Provide either a matching number of test images,"
             " or a single prompt to be used with all inputs."
+        ),
+    )
+    parser.add_argument(
+        "--neg_prompt",
+        type=str,
+        default=None,
+        nargs="+",
+        help=(
+            "A set of negative prompts for creative restoration. Provide either a matching number of test images,"
+            " or a single negative prompt to be used with all inputs."
         ),
     )
     parser.add_argument(

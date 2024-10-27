@@ -81,11 +81,11 @@ class PerceiverAttention(nn.Module):
 class Resampler(nn.Module):
     def __init__(
         self,
-        dim=1024,
-        depth=8,
+        dim=1280,
+        depth=4,
         dim_head=64,
-        heads=16,
-        num_queries=8,
+        heads=20,
+        num_queries=64,
         embedding_dim=768,
         output_dim=1024,
         ff_mult=4,

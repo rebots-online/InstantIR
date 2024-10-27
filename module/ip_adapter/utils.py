@@ -9,11 +9,11 @@ from transformers import (
     CLIPVisionModelWithProjection, CLIPImageProcessor)
 
 
-def init_ip_adapter_in_unet(
+def init_adapter_in_unet(
         unet,
         image_proj_model,
         pretrained_model_path_or_dict=None,
-        adapter_tokens=16,
+        adapter_tokens=64,
         use_lcm=False,
         use_adaln=True,
         use_external_kv=False,

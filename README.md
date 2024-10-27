@@ -39,7 +39,7 @@ We provide a Gradio Demo on 🤗, click the button below and have fun with Insta
 ### Running locally
 #### 1. Clone this repo and setting up environment
 ```
-git clone github
+git clone https://github.com/JY-Joy/InstantIR.git
 cd InstantIR
 conda create -n instantir python=3.9 -y
 conda activate instantir

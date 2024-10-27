@@ -84,7 +84,7 @@ from losses.loss_config import LossesConfig
 from losses.losses import *
 
 from module.ip_adapter.resampler import Resampler
-from module.ip_adapter.utils import init_ip_adapter_in_unet, prepare_training_image_embeds
+from module.ip_adapter.utils import init_adapter_in_unet, prepare_training_image_embeds
 
 
 if is_wandb_available():
@@ -892,7 +892,7 @@ def main(args):
     )
 
     # Load the same adapter in both unet.
-    init_ip_adapter_in_unet(
+    init_adapter_in_unet(
         unet,
         image_proj_model,
         os.path.join(args.pretrained_adapter_model_path, 'adapter_ckpt.pt'),

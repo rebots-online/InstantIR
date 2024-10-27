@@ -77,7 +77,7 @@ from utils.train_utils import (
 )
 from module.ip_adapter.resampler import Resampler
 from module.ip_adapter.attention_processor import init_attn_proc
-from module.ip_adapter.utils import load_ip_adapter_to_pipe, init_ip_adapter_in_unet, prepare_training_image_embeds
+from module.ip_adapter.utils import load_ip_adapter_to_pipe, init_adapter_in_unet, prepare_training_image_embeds
 
 
 if is_wandb_available():
@@ -728,7 +728,7 @@ def main(args):
         ff_mult=4
     )
 
-    init_ip_adapter_in_unet(
+    init_adapter_in_unet(
         unet,
         image_proj_model,
         os.path.join(args.pretrained_adapter_model_path, 'adapter_ckpt.pt'),

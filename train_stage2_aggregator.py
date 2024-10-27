@@ -79,7 +79,7 @@ from module.aggregator import Aggregator
 from schedulers.lcm_single_step_scheduler import LCMSingleStepScheduler
 from module.ip_adapter.ip_adapter import MultiIPAdapterImageProjection
 from module.ip_adapter.resampler import Resampler
-from module.ip_adapter.utils import init_ip_adapter_in_unet, prepare_training_image_embeds
+from module.ip_adapter.utils import init_adapter_in_unet, prepare_training_image_embeds
 from module.ip_adapter.attention_processor import init_attn_proc, init_aggregator_attn_proc
 from utils.train_utils import (
     seperate_ip_params_from_unet,
@@ -109,7 +109,7 @@ def log_validation(unet, aggregator, vae, text_encoder, text_encoder_2, tokenize
 
     pipe = InstantIRPipeline(
             vae, text_encoder, text_encoder_2, tokenizer, tokenizer_2,
-            unet, aggregator, scheduler, feature_extractor=image_processor, image_encoder=image_encoder,
+            unet, scheduler, aggregator, feature_extractor=image_processor, image_encoder=image_encoder,
     ).to(accelerator.device)
 
     generator = torch.Generator(device=accelerator.device).manual_seed(args.seed)
@@ -883,7 +883,7 @@ def main(args):
         ff_mult=4
     )
 
-    init_ip_adapter_in_unet(
+    init_adapter_in_unet(
         unet,
         image_proj_model,
         pretrained_adapter_state_dict,
@@ -931,7 +931,7 @@ def main(args):
             ff_mult=4
         )
 
-        init_ip_adapter_in_unet(
+        init_adapter_in_unet(
             aggregator,
             image_proj_model,
             pretrained_adapter_state_dict,
