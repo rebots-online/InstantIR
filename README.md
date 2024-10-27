@@ -1,28 +1,40 @@
-# InstantIR: Blind Image Restoration with Instant Generative Reference
+<div align="center">
+<h1>InstantIR: Blind Image Restoration with</br>Instant Generative Reference</h1>
 
-<!-- [[Project Website](https://lcm-lookahead.github.io/)] -->
+[**Jen-Yuan Huang**](https://jy-joy.github.io)<sup>1&nbsp;2</sup>, [**Haofan Wang**](https://haofanwang.github.io/)<sup>2</sup>, [**Qixun Wang**](https://github.com/wangqixun)<sup>2</sup>, [**Xu Bai**](https://huggingface.co/baymin0220)<sup>2</sup>, Hao Ai<sup>2</sup>, Peng Xing<sup>2</sup>, [**Jen-Tse Huang**](https://penguinnnnn.github.io)<sup>3</sup> <br>
 
-This repo is the official implementation of InstantIR by InstantX Team.
+<sup>1</sup>Peking University · <sup>2</sup>InstantX Team · <sup>3</sup>The Chinese University of Hong Kong
 
-> **InstantIR: Blind Image Restoration with Instant Generative Reference**<br>
-> Jen-Yuan Huang<sup>1,2</sup>, Haofan Wang<sup>2</sup>, Qixun Wang<sup>2</sup>, Xu Bai<sup>2</sup>, Hao Ai<sup>2</sup>, Peng Xing<sup>2</sup>, Jen-Tse Huang<sup>3</sup> <br>
-> <sup>1</sup>Peking University, <sup>2</sup>InstantX Team, <sup>3</sup>The Chinese University of Hong Kong
+<!-- <sup>*</sup>corresponding authors -->
 
-[![arXiv](https://img.shields.io/badge/arXiv-2410.06551-b31b1b.svg)](https://arxiv.org/abs/2410.06551)
+<a href='https://arxiv.org/abs/2410.06551'><img src='https://img.shields.io/badge/arXiv-2410.06551-b31b1b.svg'>
+<a href='https://jy-joy.github.io/InstantIR/'><img src='https://img.shields.io/badge/Project-Page-green'></a>
+<a href='https://huggingface.co/InstantX/InstantIR'><img src='https://img.shields.io/static/v1?label=Model&message=Huggingface&color=orange'></a> 
+<!-- [![GitHub](https://img.shields.io/github/stars/InstantID/InstantID?style=social)](https://github.com/InstantID/InstantID) -->
+
+<!-- <a href='https://huggingface.co/spaces/InstantX/InstantID'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue'></a>
+[![ModelScope](https://img.shields.io/badge/ModelScope-Studios-blue)](https://modelscope.cn/studios/instantx/InstantID/summary)
+[![Open in OpenXLab](https://cdn-static.openxlab.org.cn/app-center/openxlab_app.svg)](https://openxlab.org.cn/apps/detail/InstantX/InstantID) -->
+
+</div>
+
+**InstantIR** is a novel single-image restoration model designed to resurrect your damaged images, delivering extrem-quality yet realistic details. You can further boost **InstantIR** performance with additional text prompts, even achieve customized editing!
+
 
 <!-- >**Abstract**: <br>
 > Handling test-time unknown degradation is the major challenge in Blind Image Restoration (BIR), necessitating high model generalization. An effective strategy is to incorporate prior knowledge, either from human input or generative model. In this paper, we introduce Instant-reference Image Restoration (InstantIR), a novel diffusion-based BIR method which dynamically adjusts generation condition during inference. We first extract a compact representation of the input via a pre-trained vision encoder. At each generation step, this representation is used to decode current diffusion latent and instantiate it in the generative prior. The degraded image is then encoded with this reference, providing robust generation condition. We observe the variance of generative references fluctuate with degradation intensity, which we further leverage as an indicator for developing a sampling algorithm adaptive to input quality. Extensive experiments demonstrate InstantIR achieves state-of-the-art performance and offering outstanding visual quality. Through modulating generative references with textual description, InstantIR can restore extreme degradation and additionally feature creative restoration. -->
 
-## 🔥 News
-**10/15/2024** Code released!
+<img src='assets/teaser_figure.png'>
 
-<!-- ## TODO:
-- [ ] Release code!
-- [ ] Train SDXL refiner model. -->
+## 🔥 News
+- **10/15/2024** Code released!
+
+## 📝 TODOs:
+- Launch oneline demos.
 
 ## ✨ Usage
-### Online Demo
-We provide a Gradio Demo on 🤗, click the button below and have fun with InstantIR!
+<!-- ### Online Demo
+We provide a Gradio Demo on 🤗, click the button below and have fun with InstantIR! -->
 
 ### Running locally
 #### 1. Clone this repo and setting up environment
