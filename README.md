@@ -64,7 +64,7 @@ You can run InstantIR inference using `infer.sh` with the following arguments sp
 
 | Argument | Value
 | :--- | :----------
-|--pretrained_model_name_or_path | Path to your SDXL folder.
+|--sdxl_path | Path to your SDXL folder.
 |--vision_encoder_path | Path to your DINOv2 folder.
 |--instantir_path | Path to your InstantIR folder.
 |--test_path | Path to your input data.

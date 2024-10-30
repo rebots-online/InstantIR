@@ -1,33 +1,24 @@
 import os
-import copy
 import argparse
 import numpy as np
 import torch
-import json
 
 from PIL import Image
-from torchvision import transforms
-# from basicsr.utils.degradation_pipeline import RealESRGANDegradation
-from tqdm import tqdm
-from safetensors import safe_open
-from peft import LoraConfig, set_peft_model_state_dict
 from schedulers.lcm_single_step_scheduler import LCMSingleStepScheduler
 
 from diffusers import (
     DDPMScheduler,
     StableDiffusionXLPipeline
 )
-from diffusers.utils import convert_unet_state_dict_to_peft
 
 from transformers import (
     CLIPImageProcessor, CLIPVisionModelWithProjection,
     AutoImageProcessor, AutoModel
 )
 
-from module.ip_adapter.utils import load_ip_adapter_to_pipe, revise_state_dict, init_adapter_in_unet
+from module.ip_adapter.utils import init_adapter_in_unet
 from module.ip_adapter.resampler import Resampler
-from module.aggregator import Aggregator
-from pipelines.sdxl_instantir import InstantIRPipeline, PREVIEWER_LORA_MODULES, LCM_LORA_MODUELS
+from pipelines.sdxl_instantir import InstantIRPipeline, PREVIEWER_LORA_MODULES, LCM_LORA_MODULES
 
 
 def name_unet_submodules(unet):
@@ -107,11 +98,17 @@ def main(args, device):
 
     # Base models.
     pipe = StableDiffusionXLPipeline.from_pretrained(
-        args.pretrained_model_name_or_path,
+        args.sdxl_path,
         torch_dtype=torch.float16,
         revision=args.revision,
         variant=args.variant
     )
+
+    # InstantIR pipeline
+    pipe = InstantIRPipeline(
+            pipe.vae, pipe.text_encoder, pipe.text_encoder_2, pipe.tokenizer, pipe.tokenizer_2,
+            pipe.unet, pipe.scheduler, feature_extractor=image_processor, image_encoder=image_encoder,
+    ).to(device)
     unet = pipe.unet
 
     # Image prompt projector.
@@ -127,22 +124,20 @@ def main(args, device):
         adapter_path,
     )
 
-    pipe = InstantIRPipeline(
-            pipe.vae, pipe.text_encoder, pipe.text_encoder_2, pipe.tokenizer, pipe.tokenizer_2,
-            unet, pipe.scheduler, feature_extractor=image_processor, image_encoder=image_encoder,
-    ).to(device)
-    if args.previewer_lora_path is not None:
-        lora_alpha = pipe.prepare_previewers(args.previewer_lora_path)
+    # Prepare previewer
+    previewer_lora_path = args.previewer_lora_path if args.previewer_lora_path is not None else args.instantir_path
+    if previewer_lora_path is not None:
+        lora_alpha = pipe.prepare_previewers(previewer_lora_path)
         print(f"use lora alpha {lora_alpha}")
-    unet.to(dtype=torch.float16)
-    pipe.scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
+    unet.to(device, dtype=torch.float16)
+    pipe.scheduler = DDPMScheduler.from_pretrained(args.sdxl_path, subfolder="scheduler")
     lcm_scheduler = LCMSingleStepScheduler.from_config(pipe.scheduler.config)
 
     # Load weights.
     print("Loading checkpoint...")
     pretrained_state_dict = torch.load(os.path.join(args.instantir_path, "aggregator_ckpt.pt"), map_location="cpu")
     pipe.aggregator.load_state_dict(pretrained_state_dict, strict=True)
-    pipe.aggregator.to(dtype=torch.float16)
+    pipe.aggregator.to(device, dtype=torch.float16)
 
     #################### Restoration ####################
 
@@ -178,8 +173,12 @@ def main(args, device):
             pipe.scheduler.set_timesteps(args.num_inference_steps, device)
             timesteps = pipe.scheduler.timesteps
         prompt = args.prompt
+        if not isinstance(prompt, list):
+            prompt = [prompt]
         prompt = prompt*len(lq)
         neg_prompt = args.neg_prompt
+        if not isinstance(neg_prompt, list):
+            neg_prompt = [neg_prompt]
         neg_prompt = neg_prompt*len(lq)
         image = pipe(
             prompt=prompt,
@@ -204,7 +203,7 @@ def main(args, device):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="InstantIR pipeline")
     parser.add_argument(
-        "--pretrained_model_name_or_path",
+        "--sdxl_path",
         type=str,
         default=None,
         required=True,
@@ -303,7 +302,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--prompt",
         type=str,
-        default=None,
+        default='',
         nargs="+",
         help=(
             "A set of prompts for creative restoration. Provide either a matching number of test images,"
@@ -313,7 +312,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--neg_prompt",
         type=str,
-        default=None,
+        default='',
         nargs="+",
         help=(
             "A set of negative prompts for creative restoration. Provide either a matching number of test images,"
@@ -333,7 +332,7 @@ if __name__ == "__main__":
         default="./output",
         help="Output directory.",
     )
-    parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
+    parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training.")
     args = parser.parse_args()
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     main(args, device)
