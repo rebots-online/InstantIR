@@ -1532,7 +1532,6 @@ class InstantIRPipeline(
                 adaRes_scale = preview_factor.to(generative_reference.dtype).clamp(0.0, controlnet_conditioning_scale[i])
                 cond_scale = adaRes_scale * controlnet_keep[i]
                 cond_scale = torch.cat([cond_scale] * 2) if self.do_classifier_free_guidance else cond_scale
-                print(cond_scale.squeeze())
 
                 extra_kwargs = {"log_attn": 10} if i == 0 else None
                 down_block_res_samples, mid_block_res_sample = aggregator(

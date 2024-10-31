@@ -37,6 +37,30 @@ def name_unet_submodules(unet):
         recursive_find_module(name, module)
 
 
+def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
+               pad_to_max_side=False, mode=Image.BILINEAR, base_pixel_number=64):
+
+    w, h = input_image.size
+    if size is not None:
+        w_resize_new, h_resize_new = size
+    else:
+        # ratio = min_side / min(h, w)
+        # w, h = round(ratio*w), round(ratio*h)
+        ratio = max_side / max(h, w)
+        input_image = input_image.resize([round(ratio*w), round(ratio*h)], mode)
+        w_resize_new = (round(ratio * w) // base_pixel_number) * base_pixel_number
+        h_resize_new = (round(ratio * h) // base_pixel_number) * base_pixel_number
+    input_image = input_image.resize([w_resize_new, h_resize_new], mode)
+
+    if pad_to_max_side:
+        res = np.ones([max_side, max_side, 3], dtype=np.uint8) * 255
+        offset_x = (max_side - w_resize_new) // 2
+        offset_y = (max_side - h_resize_new) // 2
+        res[offset_y:offset_y+h_resize_new, offset_x:offset_x+w_resize_new] = np.array(input_image)
+        input_image = Image.fromarray(res)
+    return input_image
+
+
 def tensor_to_pil(images):
     """
     Convert image tensor or a batch of image tensors to PIL image(s).
@@ -117,7 +141,7 @@ def main(args, device):
         embedding_dim=image_encoder.config.hidden_size,
         output_dim=unet.config.cross_attention_dim,
     )
-    adapter_path = args.adapter_model_path if args.adapter_model_path is not None else os.path.join(args.instantir_path, 'adapter_ckpt.pt')
+    adapter_path = args.adapter_model_path if args.adapter_model_path is not None else os.path.join(args.instantir_path, 'adapter.pt')
     init_adapter_in_unet(
         unet,
         image_proj_model,
@@ -135,7 +159,7 @@ def main(args, device):
 
     # Load weights.
     print("Loading checkpoint...")
-    pretrained_state_dict = torch.load(os.path.join(args.instantir_path, "aggregator_ckpt.pt"), map_location="cpu")
+    pretrained_state_dict = torch.load(os.path.join(args.instantir_path, "aggregator.pt"), map_location="cpu")
     pipe.aggregator.load_state_dict(pretrained_state_dict, strict=True)
     pipe.aggregator.to(device, dtype=torch.float16)
 
@@ -148,7 +172,7 @@ def main(args, device):
     processed_imgs = os.listdir(os.path.join(args.out_path, post_fix))
     lq_files = []
     lq_batch = []
-    for file in os.listdir(os.path.join(args.test_path, 'input')):
+    for file in os.listdir(args.test_path):
         if file in processed_imgs:
             print(f"Skip {file}")
             continue
@@ -162,8 +186,13 @@ def main(args, device):
 
     for lq_batch in lq_files:
         generator = torch.Generator(device=device).manual_seed(args.seed)
-        pil_lqs = [Image.open(os.path.join(args.test_path, 'input', file)) for file in lq_batch]
-        lq = [lq_pil.convert("RGB") for lq_pil in pil_lqs]
+        pil_lqs = [Image.open(os.path.join(args.test_path, file)) for file in lq_batch]
+        if args.height is not None or args.width is not None:
+            args.height = args.height or args.width
+            args.width = args.width or args.height
+            lq = [resize_img(pil_lq.convert("RGB"), size=(args.width, args.height)) for pil_lq in pil_lqs]
+        else:
+            lq = [pil_lq.convert("RGB") for pil_lq in pil_lqs]
         timesteps = None
         if args.denoising_start < 1000:
             timesteps = [
@@ -188,7 +217,7 @@ def main(args, device):
             generator=generator,
             timesteps=timesteps,
             negative_prompt=neg_prompt,
-            guidance_scale=7.0,
+            guidance_scale=args.cfg,
             previewer_scheduler=lcm_scheduler,
             return_dict=False,
         )[0]
@@ -276,6 +305,24 @@ if __name__ == "__main__":
         help="Test batch size."
     )
     parser.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Output image width."
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        default=None,
+        help="Output image height."
+    )
+    parser.add_argument(
+        "--cfg",
+        type=float,
+        default=7.0,
+        help="Scale of Classifier-Free-Guidance (CFG).",
+    )
+    parser.add_argument(
         "--post_fix",
         type=str,
         default=None,
@@ -334,5 +381,5 @@ if __name__ == "__main__":
     )
     parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training.")
     args = parser.parse_args()
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     main(args, device)
