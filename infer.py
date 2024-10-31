@@ -187,12 +187,10 @@ def main(args, device):
     for lq_batch in lq_files:
         generator = torch.Generator(device=device).manual_seed(args.seed)
         pil_lqs = [Image.open(os.path.join(args.test_path, file)) for file in lq_batch]
-        if args.height is not None or args.width is not None:
-            args.height = args.height or args.width
-            args.width = args.width or args.height
-            lq = [resize_img(pil_lq.convert("RGB"), size=(args.width, args.height)) for pil_lq in pil_lqs]
+        if args.width is None or args.height is None:
+            lq = [resize_img(pil_lq.convert("RGB"), size=None) for pil_lq in pil_lqs]
         else:
-            lq = [pil_lq.convert("RGB") for pil_lq in pil_lqs]
+            lq = [resize_img(pil_lq.convert("RGB"), size=(args.width, args.height)) for pil_lq in pil_lqs]
         timesteps = None
         if args.denoising_start < 1000:
             timesteps = [
@@ -381,5 +379,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training.")
     args = parser.parse_args()
+    args.height = args.height or args.width
+    args.width = args.width or args.height
+    if args.width % 64 != 0 or args.height % 64 != 0:
+        raise ValueError("Image resolution must be divisible by 64.")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     main(args, device)

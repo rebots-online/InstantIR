@@ -421,10 +421,6 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
 
         # 2. Blocks
         for block in self.transformer_blocks:
-            if block.attn2 is None:
-                cross_attention_kwargs = cross_attention_kwargs or {}
-                # original_shape = (batch_size, height, width, inner_dim)
-                # cross_attention_kwargs["original_shape"] = original_shape
             if self.training and self.gradient_checkpointing:
 
                 def create_custom_forward(module, return_dict=None):

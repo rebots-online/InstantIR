@@ -271,7 +271,7 @@ class EulerDiscreteScheduler(SchedulerMixin, ConfigMixin):
         self._begin_index = begin_index
 
     def scale_model_input(
-        self, sample: torch.FloatTensor, timestep: Union[float, torch.FloatTensor], heun_step=False
+        self, sample: torch.FloatTensor, timestep: Union[float, torch.FloatTensor]
     ) -> torch.FloatTensor:
         """
         Ensures interchangeability with schedulers that need to scale the denoising model input depending on the
@@ -290,14 +290,10 @@ class EulerDiscreteScheduler(SchedulerMixin, ConfigMixin):
         if self.step_index is None:
             self._init_step_index(timestep)
 
-        if heun_step:
-            sigma = self.sigmas[self.step_index + 1]
-        else:
-            sigma = self.sigmas[self.step_index]
+        sigma = self.sigmas[self.step_index]
         sample = sample / ((sigma**2 + 1) ** 0.5)
 
         self.is_scale_input_called = True
-        print(f"{timestep} scaled at {1 / ((sigma**2 + 1) ** 0.5)}")
         return sample
 
     def set_timesteps(self, num_inference_steps: int, device: Union[str, torch.device] = None):
@@ -446,7 +442,6 @@ class EulerDiscreteScheduler(SchedulerMixin, ConfigMixin):
         s_noise: float = 1.0,
         generator: Optional[torch.Generator] = None,
         return_dict: bool = True,
-        step_forward=True,
     ) -> Union[EulerDiscreteSchedulerOutput, Tuple]:
         """
         Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion
@@ -533,7 +528,6 @@ class EulerDiscreteScheduler(SchedulerMixin, ConfigMixin):
         # 2. Convert to an ODE derivative
         derivative = (sample - pred_original_sample) / sigma_hat
 
-        print(self.step_index)
         dt = self.sigmas[self.step_index + 1] - sigma_hat
 
         prev_sample = sample + derivative * dt
@@ -542,8 +536,7 @@ class EulerDiscreteScheduler(SchedulerMixin, ConfigMixin):
         prev_sample = prev_sample.to(model_output.dtype)
 
         # upon completion increase step index by one
-        if step_forward:
-            self._step_index += 1
+        self._step_index += 1
 
         if not return_dict:
             return (prev_sample,)

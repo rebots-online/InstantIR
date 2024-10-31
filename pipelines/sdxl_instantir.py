@@ -1347,8 +1347,14 @@ class InstantIRPipeline(
         )
         height, width = image.shape[-2:]
         if image.shape[1] != 4:
+            needs_upcasting = self.vae.dtype == torch.float16 and self.vae.config.force_upcast
+            if needs_upcasting:
+                image = image.float()
+                self.vae.to(dtype=torch.float32)
             image = self.vae.encode(image).latent_dist.sample()
             image = image * self.vae.config.scaling_factor
+            if needs_upcasting:
+                self.vae.to(dtype=torch.float16)
         else:
             height = int(height * self.vae_scale_factor)
             width = int(width * self.vae_scale_factor)
@@ -1472,16 +1478,38 @@ class InstantIRPipeline(
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
-
-                # preview with LCM
-                previewer_model_input = latent_model_input
-                previewer_prompt_embeds = prompt_embeds
-                previewer_added_cond_kwargs = {
+                added_cond_kwargs = {
                     "text_embeds": add_text_embeds,
                     "time_ids": add_time_ids,
                     "image_embeds": image_embeds
                 }
+                aggregator_added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
+
+                # prepare time_embeds in advance as adapter input
+                cross_attention_t_emb = self.unet.get_time_embed(sample=latent_model_input, timestep=t)
+                cross_attention_emb = self.unet.time_embedding(cross_attention_t_emb, timestep_cond)
+                cross_attention_aug_emb = None
+
+                cross_attention_aug_emb = self.unet.get_aug_embed(
+                    emb=cross_attention_emb,
+                    encoder_hidden_states=prompt_embeds,
+                    added_cond_kwargs=added_cond_kwargs
+                )
+
+                cross_attention_emb = cross_attention_emb + cross_attention_aug_emb if cross_attention_aug_emb is not None else cross_attention_emb
+
+                if self.unet.time_embed_act is not None:
+                    cross_attention_emb = self.unet.time_embed_act(cross_attention_emb)
+
+                current_cross_attention_kwargs = {"temb": cross_attention_emb}
+                if cross_attention_kwargs is not None:
+                    for k,v in cross_attention_kwargs.items():
+                        current_cross_attention_kwargs[k] = v
+                self._cross_attention_kwargs = current_cross_attention_kwargs
+
+                # preview with LCM
+                previewer_model_input = latent_model_input
+                previewer_prompt_embeds = prompt_embeds
                 self.unet.enable_adapters()
                 preview_noise = self.unet(
                     previewer_model_input,
@@ -1489,7 +1517,7 @@ class InstantIRPipeline(
                     encoder_hidden_states=previewer_prompt_embeds,
                     timestep_cond=timestep_cond,
                     cross_attention_kwargs=self.cross_attention_kwargs,
-                    added_cond_kwargs=previewer_added_cond_kwargs,
+                    added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,
                 )[0]
                 preview_latent = previewer_scheduler.step(
@@ -1533,20 +1561,15 @@ class InstantIRPipeline(
                 cond_scale = adaRes_scale * controlnet_keep[i]
                 cond_scale = torch.cat([cond_scale] * 2) if self.do_classifier_free_guidance else cond_scale
 
-                extra_kwargs = {"log_attn": 10} if i == 0 else None
                 down_block_res_samples, mid_block_res_sample = aggregator(
                     image,
                     prev_t,
                     encoder_hidden_states=prompt_embeds,
                     controlnet_cond=generative_reference,
                     conditioning_scale=cond_scale,
-                    # cross_attention_kwargs=extra_kwargs,
-                    added_cond_kwargs=added_cond_kwargs,
+                    added_cond_kwargs=aggregator_added_cond_kwargs,
                     return_dict=False,
                 )
-
-                if ip_adapter_image is not None or ip_adapter_image_embeds is not None:
-                    added_cond_kwargs["image_embeds"] = image_embeds
 
                 # predict the noise residual
                 noise_pred = self.unet(

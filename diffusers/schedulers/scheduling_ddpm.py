@@ -231,7 +231,7 @@ class DDPMScheduler(SchedulerMixin, ConfigMixin):
 
         self.variance_type = variance_type
 
-    def scale_model_input(self, sample: torch.FloatTensor, timestep: Optional[int] = None, heun_step=False) -> torch.FloatTensor:
+    def scale_model_input(self, sample: torch.FloatTensor, timestep: Optional[int] = None) -> torch.FloatTensor:
         """
         Ensures interchangeability with schedulers that need to scale the denoising model input depending on the
         current timestep.
@@ -403,7 +403,6 @@ class DDPMScheduler(SchedulerMixin, ConfigMixin):
         sample: torch.FloatTensor,
         generator=None,
         return_dict: bool = True,
-        step_forward=True,
     ) -> Union[DDPMSchedulerOutput, Tuple]:
         """
         Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion

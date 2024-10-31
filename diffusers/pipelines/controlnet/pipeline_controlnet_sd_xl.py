@@ -1387,9 +1387,15 @@ class StableDiffusionXLControlNetPipeline(
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                 added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
+                if ip_adapter_image is not None or ip_adapter_image_embeds is not None or ip_adapter_image_control is not None:
+                    if ip_adapter_image_control is not None:
+                        added_cond_kwargs["image_embeds"] = image_embeds_control
+                    else:
+                        added_cond_kwargs["image_embeds"] = image_embeds
 
                 # controlnet(s) inference
                 if guess_mode and self.do_classifier_free_guidance:
+                    raise NotImplementedError
                     # Infer ControlNet only for the conditional batch.
                     control_model_input = latents
                     control_model_input = self.scheduler.scale_model_input(control_model_input, t)
@@ -1397,15 +1403,12 @@ class StableDiffusionXLControlNetPipeline(
                     controlnet_added_cond_kwargs = {
                         "text_embeds": add_text_embeds.chunk(2)[1],
                         "time_ids": add_time_ids.chunk(2)[1],
+                        "image_embeds": image_embeds.chunk(2)[1],
                     }
-                    if ip_adapter_image_control is not None:
-                        controlnet_added_cond_kwargs["image_embeds"] = image_embeds_control.chunk(2)[1]
                 else:
                     control_model_input = latent_model_input
                     controlnet_prompt_embeds = prompt_embeds
                     controlnet_added_cond_kwargs = added_cond_kwargs
-                    if ip_adapter_image_control is not None:
-                        controlnet_added_cond_kwargs["image_embeds"] = image_embeds_control
 
                 if isinstance(controlnet_keep[i], list):
                     cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]

@@ -326,18 +326,11 @@ class BasicTransformerBlock(nn.Module):
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
 
-        if "extracted_kv" in cross_attention_kwargs:
-            filtered_cross_attention_kwargs = {k: v for k, v in cross_attention_kwargs.items() if k != "extracted_kv"}
-            filtered_cross_attention_kwargs["external_kv"] = cross_attention_kwargs["extracted_kv"][self.full_name].self_attention
-        else:
-            filtered_cross_attention_kwargs = cross_attention_kwargs
-
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
             attention_mask=attention_mask,
-            temb=timestep,
-            **filtered_cross_attention_kwargs,
+            **cross_attention_kwargs,
         )
         if self.norm_type == "ada_norm_zero":
             attn_output = gate_msa.unsqueeze(1) * attn_output
@@ -370,18 +363,12 @@ class BasicTransformerBlock(nn.Module):
             if self.pos_embed is not None and self.norm_type != "ada_norm_single":
                 norm_hidden_states = self.pos_embed(norm_hidden_states)
 
-            if "extracted_kv" in cross_attention_kwargs:
-                filtered_cross_attention_kwargs = {k: v for k, v in cross_attention_kwargs.items() if k != "extracted_kv"}
-                filtered_cross_attention_kwargs["external_kv"] = cross_attention_kwargs["extracted_kv"][self.full_name].cross_attention
-            else:
-                filtered_cross_attention_kwargs = cross_attention_kwargs
-
             attn_output = self.attn2(
                 norm_hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
                 attention_mask=encoder_attention_mask,
                 temb=timestep,
-                **filtered_cross_attention_kwargs,
+                **cross_attention_kwargs,
             )
             hidden_states = attn_output + hidden_states
 

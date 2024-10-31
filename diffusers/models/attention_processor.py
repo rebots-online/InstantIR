@@ -1353,7 +1353,6 @@ class AttnProcessor2_0:
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         temb: Optional[torch.FloatTensor] = None,
-        log_attn= None,
         *args,
         **kwargs,
     ) -> torch.FloatTensor:
@@ -1404,13 +1403,6 @@ class AttnProcessor2_0:
 
         # the output of sdp = (batch, num_heads, seq_len, head_dim)
         # TODO: add support for attn.scale when we move to Torch 2.1
-        if log_attn is not None:
-            if log_attn == query.shape[1]:
-                attn_score = query @ key.transpose(-2, -1)
-                avg_head_score = attn_score.mean(dim=1)
-                avg_head_score_up, avg_head_score_down = avg_head_score.chunk(2, dim=-2)
-                _, idx = torch.topk(avg_head_score_up, 5, dim=-1)
-                print(idx)
         hidden_states = F.scaled_dot_product_attention(
             query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
         )
