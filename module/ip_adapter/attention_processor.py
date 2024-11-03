@@ -1361,7 +1361,7 @@ class CNAttnProcessor2_0:
         return hidden_states
 
 
-def init_attn_proc(unet, ip_adapter_tokens=16, use_lcm=True, use_adaln=True, use_external_kv=False):
+def init_attn_proc(unet, ip_adapter_tokens=16, use_lcm=False, use_adaln=True, use_external_kv=False):
     attn_procs = {}
     unet_sd = unet.state_dict()
     for name in unet.attn_processors.keys():

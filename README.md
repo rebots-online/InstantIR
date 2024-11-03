@@ -8,7 +8,7 @@
 <!-- <sup>*</sup>corresponding authors -->
 
 <a href='https://arxiv.org/abs/2410.06551'><img src='https://img.shields.io/badge/arXiv-2410.06551-b31b1b.svg'>
-<a href='https://jy-joy.github.io/InstantIR/'><img src='https://img.shields.io/badge/Project-Page-green'></a>
+<a href='https://jy-joy.github.io/InstantIR/'><img src='https://img.shields.io/badge/Project-Website-green'></a>
 <a href='https://huggingface.co/InstantX/InstantIR'><img src='https://img.shields.io/static/v1?label=Model&message=Huggingface&color=orange'></a> 
 <!-- [![GitHub](https://img.shields.io/github/stars/InstantID/InstantID?style=social)](https://github.com/InstantID/InstantID) -->
 
@@ -56,7 +56,7 @@ InstantIR is built on SDXL and DINOv2. You can download them either directly fro
 |[facebook/dinov2-large](https://huggingface.co/facebook/dinov2-large) | `hf_hub_download(repo_id="facebook/dinov2-large")`
 |[instantx/instantir](https://huggingface.co/facebook/dinov2-large) | `hf_hub_download(repo_id="InstantX/InstantIR")`
 
-Make sure to import the package first with `from huggingface_hub import hf_hub_download` if you are using Python script.
+Note: Make sure to import the package first with `from huggingface_hub import hf_hub_download` if you are using Python script.
 
 #### 3. Inference
 
@@ -71,6 +71,16 @@ You can run InstantIR inference using `infer.sh` with the following arguments sp
 |--out_path | Path for InstantIR output.
 
 See `infer.py` for additional config options. 
+
+#### 4. Using tips
+
+InstantIR is powerful, but with your help it can do better. InstantIR's flexible pipeline makes it tunable to a large extent. Here are some tips we found particularly useful for various cases you may encounter:
+- **Over-smoothing**: reduce `--cfg` to 3.0～5.0. Higher CFG scales can sometimes rigid lines or lack of details.
+- **Low fidelity**: set `--preview_start` to 0.1~0.4 to preserve fidelity from inputs. The previewer can yield misleading references when input latent is too noisy. In such cases, we suggest to disable the previewer at early timesteps.
+- **Local distortions**: set `--creative_start` to 0.6~0.8. This will let InstantIR render freely in the late diffusion process, where the high-frequency details are generated. Smaller `--creative_start` spares more spaces for creative restoration, but will diminish fidelity.
+- **Faster inference**: higher `--preview_start` and lower `--creative_start` can both reduce computational costs and accelerate InstantIR inference.
+
+Warning: these features are training-free and thus experimental. If you would like to try, we suggest to tune these parameters case-by-case.
 
 ## ⚙️ Training
 

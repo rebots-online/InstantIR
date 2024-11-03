@@ -768,7 +768,6 @@ class Aggregator(ModelMixin, ConfigMixin, FromOriginalModelMixin):
         attention_mask: Optional[torch.Tensor] = None,
         added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
-        guess_mode: bool = False,
         return_dict: bool = True,
     ) -> Union[AggregatorOutput, Tuple[Tuple[torch.FloatTensor, ...], torch.FloatTensor]]:
         """
@@ -799,9 +798,6 @@ class Aggregator(ModelMixin, ConfigMixin, FromOriginalModelMixin):
                 Additional conditions for the Stable Diffusion XL UNet.
             cross_attention_kwargs (`dict[str]`, *optional*, defaults to `None`):
                 A kwargs dictionary that if specified is passed along to the `AttnProcessor`.
-            guess_mode (`bool`, defaults to `False`):
-                In this mode, the ControlNet encoder tries its best to recognize the input content of the input even if
-                you remove all prompts. A `guidance_scale` between 3.0 and 5.0 is recommended.
             return_dict (`bool`, defaults to `True`):
                 Whether or not to return a [`~models.controlnet.ControlNetOutput`] instead of a plain tuple.
 
@@ -964,14 +960,8 @@ class Aggregator(ModelMixin, ConfigMixin, FromOriginalModelMixin):
         mid_block_res_sample = self.controlnet_mid_block((cond_latent, ref_latent), )
 
         # 6. scaling
-        if guess_mode and not self.config.global_pool_conditions:
-            scales = torch.logspace(-1, 0, len(down_block_res_samples) + 1, device=sample.device)  # 0.1 to 1.0
-            scales = scales * conditioning_scale
-            down_block_res_samples = [sample*scale for sample, scale in zip(down_block_res_samples, scales)]
-            mid_block_res_sample = mid_block_res_sample*scales[-1]  # last scale
-        else:
-            down_block_res_samples = [sample*conditioning_scale for sample in down_block_res_samples]
-            mid_block_res_sample = mid_block_res_sample*conditioning_scale
+        down_block_res_samples = [sample*conditioning_scale for sample in down_block_res_samples]
+        mid_block_res_sample = mid_block_res_sample*conditioning_scale
 
         if self.config.global_pool_conditions:
             down_block_res_samples = [

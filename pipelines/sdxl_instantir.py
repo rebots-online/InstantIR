@@ -1,4 +1,4 @@
-# Copyright 2024 The HuggingFace Team. All rights reserved.
+# Copyright 2024 The InstantX Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -73,44 +73,52 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 EXAMPLE_DOC_STRING = """
     Examples:
         ```py
-        >>> # !pip install opencv-python transformers accelerate
-        >>> from diffusers import StableDiffusionXLControlNetPipeline, ControlNetModel, AutoencoderKL
-        >>> from diffusers.utils import load_image
-        >>> import numpy as np
+        >>> # !pip install diffusers pillow transformers accelerate
         >>> import torch
-
-        >>> import cv2
         >>> from PIL import Image
 
-        >>> prompt = "aerial view, a futuristic research complex in a bright foggy jungle, hard lighting"
-        >>> negative_prompt = "low quality, bad quality, sketches"
+        >>> from diffusers import DDPMScheduler
+        >>> from schedulers.lcm_single_step_scheduler import LCMSingleStepScheduler
 
-        >>> # download an image
-        >>> image = load_image(
-        ...     "https://hf.co/datasets/hf-internal-testing/diffusers-images/resolve/main/sd_controlnet/hf-logo.png"
-        ... )
+        >>> from module.ip_adapter.utils import load_adapter_to_pipe
+        >>> from pipelines.sdxl_instantir import InstantIRPipeline
 
-        >>> # initialize the models and pipeline
-        >>> controlnet_conditioning_scale = 0.5  # recommended for good generalization
-        >>> controlnet = ControlNetModel.from_pretrained(
-        ...     "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16
-        ... )
-        >>> vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
-        >>> pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+        >>> # download models under ./models
+        >>> dcp_adapter = f'./models/adapter.pt'
+        >>> previewer_lora_path = f'./models'
+        >>> instantir_path = f'./models/aggregator.pt'
+
+        >>> # load pretrained models
+        >>> pipe = InstantIRPipeline.from_pretrained(
         ...     "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, vae=vae, torch_dtype=torch.float16
         ... )
+        >>> # load adapter
+        >>> load_adapter_to_pipe(
+        ...     pipe,
+        ...     dcp_adapter,
+        ...     image_encoder_or_path = 'facebook/dinov2-large',
+        ... )
+        >>> # load previewer lora
+        >>> pipe.prepare_previewers(previewer_lora_path)
+        >>> pipe.scheduler = DDPMScheduler.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0', subfolder="scheduler")
+        >>> lcm_scheduler = LCMSingleStepScheduler.from_config(pipe.scheduler.config)
+
+        >>> # load aggregator weights
+        >>> pretrained_state_dict = torch.load(instantir_path)
+        >>> pipe.aggregator.load_state_dict(pretrained_state_dict)
+
+        >>> # send to GPU and fp16
+        >>> pipe.to(device="cuda", dtype=torch.float16)
+        >>> pipe.aggregator.to(device="cuda", dtype=torch.float16)
         >>> pipe.enable_model_cpu_offload()
 
-        >>> # get canny image
-        >>> image = np.array(image)
-        >>> image = cv2.Canny(image, 100, 200)
-        >>> image = image[:, :, None]
-        >>> image = np.concatenate([image, image, image], axis=2)
-        >>> canny_image = Image.fromarray(image)
+        >>> # load a broken image
+        >>> low_quality_image = Image.open('path/to/your-image').convert("RGB")
 
-        >>> # generate image
+        >>> # restoration
         >>> image = pipe(
-        ...     prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image
+        ...     image=low_quality_image,
+        ...     previewer_scheduler=lcm_scheduler,
         ... ).images[0]
         ```
 """
@@ -1076,11 +1084,14 @@ class InstantIRPipeline(
         save_preview_row: bool = False,
         init_latents_with_lq: bool = True,
         multistep_restore: bool = False,
+        adastep_restore: bool = False,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         guidance_rescale: float = 0.0,
-        controlnet_conditioning_scale: Union[float, List[float]] = 1.0,
-        control_guidance_start: Union[float, List[float]] = 0.0,
-        control_guidance_end: Union[float, List[float]] = 1.0,
+        controlnet_conditioning_scale: float = 1.0,
+        control_guidance_start: float = 0.0,
+        control_guidance_end: float = 1.0,
+        preview_start: float = 0.0,
+        preview_end: float = 1.0,
         original_size: Tuple[int, int] = None,
         crops_coords_top_left: Tuple[int, int] = (0, 0),
         target_size: Tuple[int, int] = None,
@@ -1256,6 +1267,8 @@ class InstantIRPipeline(
             )
 
         aggregator = self.aggregator._orig_mod if is_compiled_module(self.aggregator) else self.aggregator
+        if not isinstance(ip_adapter_image, list):
+            ip_adapter_image = [ip_adapter_image] if ip_adapter_image is not None else [image]
 
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
@@ -1391,9 +1404,12 @@ class InstantIRPipeline(
 
         # 7.1 Create tensor stating which controlnets to keep
         controlnet_keep = []
+        previewing = []
         for i in range(len(timesteps)):
             keeps = 1.0 - float(i / len(timesteps) < control_guidance_start or (i + 1) / len(timesteps) > control_guidance_end)
             controlnet_keep.append(keeps)
+            use_preview = 1.0 - float(i / len(timesteps) < preview_start or (i + 1) / len(timesteps) > preview_end)
+            previewing.append(use_preview)
         if isinstance(controlnet_conditioning_scale, list):
             assert len(controlnet_conditioning_scale) == len(timesteps), f"{len(controlnet_conditioning_scale)} controlnet scales do not match number of sampling steps {len(timesteps)}"
         else:
@@ -1477,6 +1493,8 @@ class InstantIRPipeline(
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                prev_t = t
+                unet_model_input = latent_model_input
 
                 added_cond_kwargs = {
                     "text_embeds": add_text_embeds,
@@ -1507,69 +1525,73 @@ class InstantIRPipeline(
                         current_cross_attention_kwargs[k] = v
                 self._cross_attention_kwargs = current_cross_attention_kwargs
 
-                # preview with LCM
-                previewer_model_input = latent_model_input
-                previewer_prompt_embeds = prompt_embeds
-                self.unet.enable_adapters()
-                preview_noise = self.unet(
-                    previewer_model_input,
-                    t,
-                    encoder_hidden_states=previewer_prompt_embeds,
-                    timestep_cond=timestep_cond,
-                    cross_attention_kwargs=self.cross_attention_kwargs,
-                    added_cond_kwargs=added_cond_kwargs,
-                    return_dict=False,
-                )[0]
-                preview_latent = previewer_scheduler.step(
-                    preview_noise,
-                    t.to(dtype=torch.int64),
-                    # torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents,
-                    latent_model_input,
-                    return_dict=False
-                )[0]
-                self.unet.disable_adapters()
-                if self.do_classifier_free_guidance:
-                    _, preview_latent_cond = preview_latent.chunk(2)
-                    _, noise_preview = preview_noise.chunk(2)
-                    preview_row.append(preview_latent_cond.to('cpu'))
-                else:
-                    noise_preview = preview_noise
-                    preview_row.append(preview_latent.to('cpu'))
-                # Prepare 2nd order step.
-                if multistep_restore and i+1 < len(timesteps):
-                    first_step = self.scheduler.step(noise_preview, t, latents, **extra_step_kwargs, return_dict=True, step_forward=False)
-                    prev_t = timesteps[i + 1]
-                    unet_model_input = torch.cat([first_step.prev_sample] * 2) if self.do_classifier_free_guidance else first_step.prev_sample
-                    unet_model_input = self.scheduler.scale_model_input(unet_model_input, prev_t, heun_step=True)
-                else:
-                    prev_t = t
-                    unet_model_input = latent_model_input
-
-                if reference_latents is not None:
-                    preview_latent = torch.cat([reference_latents] * 2) if self.do_classifier_free_guidance else reference_latents
-
-                # Add fresh noise
-                # preview_noise = torch.randn_like(preview_latent)
-                # preview_latent = self.scheduler.add_noise(preview_latent, preview_noise, t)
-
-                preview_latent=preview_latent.to(dtype=next(aggregator.parameters()).dtype)
-
-                # Aggregator inference
-                generative_reference = preview_latent
-
-                adaRes_scale = preview_factor.to(generative_reference.dtype).clamp(0.0, controlnet_conditioning_scale[i])
+                # adaptive restoration factors
+                adaRes_scale = preview_factor.to(latent_model_input.dtype).clamp(0.0, controlnet_conditioning_scale[i])
                 cond_scale = adaRes_scale * controlnet_keep[i]
                 cond_scale = torch.cat([cond_scale] * 2) if self.do_classifier_free_guidance else cond_scale
 
-                down_block_res_samples, mid_block_res_sample = aggregator(
-                    image,
-                    prev_t,
-                    encoder_hidden_states=prompt_embeds,
-                    controlnet_cond=generative_reference,
-                    conditioning_scale=cond_scale,
-                    added_cond_kwargs=aggregator_added_cond_kwargs,
-                    return_dict=False,
-                )
+                if (cond_scale>0.1).sum().item() > 0:
+                    if previewing[i] > 0:
+                        # preview with LCM
+                        self.unet.enable_adapters()
+                        preview_noise = self.unet(
+                            latent_model_input,
+                            t,
+                            encoder_hidden_states=prompt_embeds,
+                            timestep_cond=timestep_cond,
+                            cross_attention_kwargs=self.cross_attention_kwargs,
+                            added_cond_kwargs=added_cond_kwargs,
+                            return_dict=False,
+                        )[0]
+                        preview_latent = previewer_scheduler.step(
+                            preview_noise,
+                            t.to(dtype=torch.int64),
+                            # torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents,
+                            latent_model_input,     # scaled latents here for compatibility
+                            return_dict=False
+                        )[0]
+                        self.unet.disable_adapters()
+
+                        if self.do_classifier_free_guidance:
+                            preview_row.append(preview_latent.chunk(2)[1].to('cpu'))
+                        else:
+                            preview_row.append(preview_latent.to('cpu'))
+                        # Prepare 2nd order step.
+                        if multistep_restore and i+1 < len(timesteps):
+                            noise_preview = preview_noise.chunk(2)[1] if self.do_classifier_free_guidance else preview_noise
+                            first_step = self.scheduler.step(
+                                noise_preview, t, latents,
+                                **extra_step_kwargs, return_dict=True, step_forward=False
+                            )
+                            prev_t = timesteps[i + 1]
+                            unet_model_input = torch.cat([first_step.prev_sample] * 2) if self.do_classifier_free_guidance else first_step.prev_sample
+                            unet_model_input = self.scheduler.scale_model_input(unet_model_input, prev_t, heun_step=True)
+
+                    elif reference_latents is not None:
+                        preview_latent = torch.cat([reference_latents] * 2) if self.do_classifier_free_guidance else reference_latents
+                    else:
+                        preview_latent = image
+
+                    # Add fresh noise
+                    # preview_noise = torch.randn_like(preview_latent)
+                    # preview_latent = self.scheduler.add_noise(preview_latent, preview_noise, t)
+
+                    preview_latent=preview_latent.to(dtype=next(aggregator.parameters()).dtype)
+
+                    # Aggregator inference
+                    down_block_res_samples, mid_block_res_sample = aggregator(
+                        image,
+                        prev_t,
+                        encoder_hidden_states=prompt_embeds,
+                        controlnet_cond=preview_latent,
+                        # conditioning_scale=cond_scale,
+                        added_cond_kwargs=aggregator_added_cond_kwargs,
+                        return_dict=False,
+                    )
+
+                # aggregator features scaling
+                down_block_res_samples = [sample*cond_scale for sample in down_block_res_samples]
+                mid_block_res_sample = mid_block_res_sample*cond_scale
 
                 # predict the noise residual
                 noise_pred = self.unet(
@@ -1602,14 +1624,15 @@ class InstantIRPipeline(
                 unet_pred_latent = unet_step.pred_original_sample
 
                 # Adaptive restoration.
-                pred_x0_l2 = ((preview_latent[latents.shape[0]:].float()-unet_pred_latent.float())).pow(2).sum(dim=(1,2,3))
-                previewer_l2 = ((preview_latent[latents.shape[0]:].float()-previewer_mean.float())).pow(2).sum(dim=(1,2,3))
-                # unet_l2 = ((unet_pred_latent.float()-unet_mean.float())).pow(2).sum(dim=(1,2,3)).sqrt()
-                # l2_error = (((preview_latent[latents.shape[0]:]-previewer_mean) - (unet_pred_latent-unet_mean))).pow(2).mean(dim=(1,2,3))
-                # preview_error = torch.nn.functional.cosine_similarity(preview_latent[latents.shape[0]:].reshape(latents.shape[0], -1), unet_pred_latent.reshape(latents.shape[0],-1))
-                previewer_mean = preview_latent[latents.shape[0]:]
-                unet_mean = unet_pred_latent
-                preview_factor = (pred_x0_l2 / previewer_l2).reshape(-1, 1, 1, 1)
+                if adastep_restore:
+                    pred_x0_l2 = ((preview_latent[latents.shape[0]:].float()-unet_pred_latent.float())).pow(2).sum(dim=(1,2,3))
+                    previewer_l2 = ((preview_latent[latents.shape[0]:].float()-previewer_mean.float())).pow(2).sum(dim=(1,2,3))
+                    # unet_l2 = ((unet_pred_latent.float()-unet_mean.float())).pow(2).sum(dim=(1,2,3)).sqrt()
+                    # l2_error = (((preview_latent[latents.shape[0]:]-previewer_mean) - (unet_pred_latent-unet_mean))).pow(2).mean(dim=(1,2,3))
+                    # preview_error = torch.nn.functional.cosine_similarity(preview_latent[latents.shape[0]:].reshape(latents.shape[0], -1), unet_pred_latent.reshape(latents.shape[0],-1))
+                    previewer_mean = preview_latent[latents.shape[0]:]
+                    unet_mean = unet_pred_latent
+                    preview_factor = (pred_x0_l2 / previewer_l2).reshape(-1, 1, 1, 1)
 
                 if latents.dtype != latents_dtype:
                     if torch.backends.mps.is_available():

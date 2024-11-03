@@ -44,7 +44,6 @@ from huggingface_hub import create_repo, upload_folder
 from packaging import version
 from PIL import Image
 from data.data_config import DataConfig
-from basicsr.data.imagent_dataset import IRImageFolderDataset
 from basicsr.utils.degradation_pipeline import RealESRGANDegradation
 from losses.loss_config import LossesConfig
 from losses.losses import *
@@ -68,7 +67,6 @@ from diffusers import (
 from diffusers.optimization import get_scheduler
 from diffusers.utils import (
     check_min_version,
-    convert_state_dict_to_diffusers,
     convert_unet_state_dict_to_peft,
     is_wandb_available,
 )
@@ -80,14 +78,15 @@ from schedulers.lcm_single_step_scheduler import LCMSingleStepScheduler
 from module.ip_adapter.ip_adapter import MultiIPAdapterImageProjection
 from module.ip_adapter.resampler import Resampler
 from module.ip_adapter.utils import init_adapter_in_unet, prepare_training_image_embeds
-from module.ip_adapter.attention_processor import init_attn_proc, init_aggregator_attn_proc
+from module.ip_adapter.attention_processor import init_attn_proc
 from utils.train_utils import (
     seperate_ip_params_from_unet,
     import_model_class_from_model_name_or_path,
     tensor_to_pil,
     get_train_dataset, prepare_train_dataset, collate_fn,
     encode_prompt, importance_sampling_fn, extract_into_tensor
-)from pipelines.sdxl_instantir import InstantIRPipeline
+)
+from pipelines.sdxl_instantir import InstantIRPipeline
 
 
 if is_wandb_available():

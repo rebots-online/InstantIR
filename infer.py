@@ -6,19 +6,10 @@ import torch
 from PIL import Image
 from schedulers.lcm_single_step_scheduler import LCMSingleStepScheduler
 
-from diffusers import (
-    DDPMScheduler,
-    StableDiffusionXLPipeline
-)
+from diffusers import DDPMScheduler
 
-from transformers import (
-    CLIPImageProcessor, CLIPVisionModelWithProjection,
-    AutoImageProcessor, AutoModel
-)
-
-from module.ip_adapter.utils import init_adapter_in_unet
-from module.ip_adapter.resampler import Resampler
-from pipelines.sdxl_instantir import InstantIRPipeline, PREVIEWER_LORA_MODULES, LCM_LORA_MODULES
+from module.ip_adapter.utils import load_adapter_to_pipe
+from pipelines.sdxl_instantir import InstantIRPipeline
 
 
 def name_unet_submodules(unet):
@@ -108,44 +99,19 @@ def adaptive_instance_normalization(content_feat, style_feat):
 
 def main(args, device):
 
-    # image encoder and feature extractor.
-    if args.use_clip_encoder:
-        image_encoder = CLIPVisionModelWithProjection.from_pretrained(
-            args.vision_encoder_path,
-            subfolder="image_encoder",
-        )
-        image_processor = CLIPImageProcessor()
-    else:
-        image_encoder = AutoModel.from_pretrained(args.vision_encoder_path)
-        image_processor = AutoImageProcessor.from_pretrained(args.vision_encoder_path)
-    image_encoder.to(torch.float16)
-
-    # Base models.
-    pipe = StableDiffusionXLPipeline.from_pretrained(
+    # Load pretrained models.
+    pipe = InstantIRPipeline.from_pretrained(
         args.sdxl_path,
         torch_dtype=torch.float16,
-        revision=args.revision,
-        variant=args.variant
     )
-
-    # InstantIR pipeline
-    pipe = InstantIRPipeline(
-            pipe.vae, pipe.text_encoder, pipe.text_encoder_2, pipe.tokenizer, pipe.tokenizer_2,
-            pipe.unet, pipe.scheduler, feature_extractor=image_processor, image_encoder=image_encoder,
-    ).to(device)
-    unet = pipe.unet
 
     # Image prompt projector.
     print("Loading LQ-Adapter...")
-    image_proj_model = Resampler(
-        embedding_dim=image_encoder.config.hidden_size,
-        output_dim=unet.config.cross_attention_dim,
-    )
-    adapter_path = args.adapter_model_path if args.adapter_model_path is not None else os.path.join(args.instantir_path, 'adapter.pt')
-    init_adapter_in_unet(
-        unet,
-        image_proj_model,
-        adapter_path,
+    load_adapter_to_pipe(
+        pipe,
+        args.adapter_model_path if args.adapter_model_path is not None else os.path.join(args.instantir_path, 'adapter.pt'),
+        args.vision_encoder_path,
+        use_clip_encoder=args.use_clip_encoder,
     )
 
     # Prepare previewer
@@ -153,26 +119,27 @@ def main(args, device):
     if previewer_lora_path is not None:
         lora_alpha = pipe.prepare_previewers(previewer_lora_path)
         print(f"use lora alpha {lora_alpha}")
-    unet.to(device, dtype=torch.float16)
+    pipe.to(device=device, dtype=torch.float16)
     pipe.scheduler = DDPMScheduler.from_pretrained(args.sdxl_path, subfolder="scheduler")
     lcm_scheduler = LCMSingleStepScheduler.from_config(pipe.scheduler.config)
 
     # Load weights.
     print("Loading checkpoint...")
     pretrained_state_dict = torch.load(os.path.join(args.instantir_path, "aggregator.pt"), map_location="cpu")
-    pipe.aggregator.load_state_dict(pretrained_state_dict, strict=True)
+    pipe.aggregator.load_state_dict(pretrained_state_dict)
     pipe.aggregator.to(device, dtype=torch.float16)
 
     #################### Restoration ####################
 
     post_fix = f"_{args.post_fix}" if args.post_fix else ""
-    post_fix = args.instantir_path.split("/")[-2]+f"{post_fix}"
     os.makedirs(f"{args.out_path}/{post_fix}", exist_ok=True)
 
     processed_imgs = os.listdir(os.path.join(args.out_path, post_fix))
     lq_files = []
     lq_batch = []
-    for file in os.listdir(args.test_path):
+    all_inputs = os.listdir(args.test_path)
+    all_inputs.sort()
+    for file in all_inputs:
         if file in processed_imgs:
             print(f"Skip {file}")
             continue
@@ -199,26 +166,38 @@ def main(args, device):
             timesteps = timesteps[::-1]
             pipe.scheduler.set_timesteps(args.num_inference_steps, device)
             timesteps = pipe.scheduler.timesteps
-        prompt = args.prompt
+        if args.prompt is None or len(args.prompt) == 0:
+            prompt = "Photorealistic, highly detailed, hyper detailed photo - realistic maximum detail, 32k, \
+                ultra HD, extreme meticulous detailing, skin pore detailing, \
+                hyper sharpness, perfect without deformations, \
+                taken using a Canon EOS R camera, Cinematic, High Contrast, Color Grading. "
+        else:
+            prompt = args.prompt
         if not isinstance(prompt, list):
             prompt = [prompt]
         prompt = prompt*len(lq)
-        neg_prompt = args.neg_prompt
+        if args.neg_prompt is None or len(args.neg_prompt) == 0:
+            neg_prompt = "blurry, out of focus, unclear, depth of field, over-smooth, \
+                sketch, oil painting, cartoon, CG Style, 3D render, unreal engine, \
+                dirty, messy, worst quality, low quality, frames, painting, illustration, drawing, art, \
+                watermark, signature, jpeg artifacts, deformed, lowres"
+        else:
+            neg_prompt = args.neg_prompt
         if not isinstance(neg_prompt, list):
             neg_prompt = [neg_prompt]
         neg_prompt = neg_prompt*len(lq)
         image = pipe(
             prompt=prompt,
             image=lq,
-            ip_adapter_image=[lq],
             num_inference_steps=args.num_inference_steps,
             generator=generator,
             timesteps=timesteps,
             negative_prompt=neg_prompt,
             guidance_scale=args.cfg,
             previewer_scheduler=lcm_scheduler,
-            return_dict=False,
-        )[0]
+            preview_start=args.preview_start,
+            control_guidance_end=args.creative_start,
+        ).images
 
         if args.save_preview_row:
             for i, lcm_image in enumerate(image[1]):
@@ -289,6 +268,18 @@ if __name__ == "__main__":
         type=int,
         default=30,
         help="Diffusion steps."
+    )
+    parser.add_argument(
+        "--creative_start",
+        type=float,
+        default=1.0,
+        help="Proportion of timesteps for creative restoration. 1.0 means no creative restoration while 0.0 means completely free rendering."
+    )
+    parser.add_argument(
+        "--preview_start",
+        type=float,
+        default=0.0,
+        help="Proportion of timesteps to stop previewing at the begining to enhance fidelity to input."
     )
     parser.add_argument(
         "--resolution",
@@ -383,5 +374,5 @@ if __name__ == "__main__":
     args.width = args.width or args.height
     if args.width % 64 != 0 or args.height % 64 != 0:
         raise ValueError("Image resolution must be divisible by 64.")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     main(args, device)
