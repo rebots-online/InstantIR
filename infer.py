@@ -374,5 +374,5 @@ if __name__ == "__main__":
     args.width = args.width or args.height
     if args.width % 64 != 0 or args.height % 64 != 0:
         raise ValueError("Image resolution must be divisible by 64.")
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     main(args, device)

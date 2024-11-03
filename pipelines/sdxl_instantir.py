@@ -348,8 +348,16 @@ class InstantIRPipeline(
 
         self.register_to_config(force_zeros_for_empty_prompt=force_zeros_for_empty_prompt)
 
-    def prepare_previewers(self, previewer_lora_path: str):
-        lora_state_dict, alpha_dict = self.lora_state_dict(previewer_lora_path, weight_name="previewer_lora_weights.bin")
+    def prepare_previewers(self, previewer_lora_path: str, use_lcm=False):
+        if use_lcm:
+            lora_state_dict, alpha_dict = self.lora_state_dict(
+                previewer_lora_path,
+            )
+        else:
+            lora_state_dict, alpha_dict = self.lora_state_dict(
+                previewer_lora_path,
+                weight_name="previewer_lora_weights.bin"
+            )
         unet_state_dict = {
             f'{k.replace("unet.", "")}': v for k, v in lora_state_dict.items() if k.startswith("unet.")
         }
@@ -368,13 +376,14 @@ class InstantIRPipeline(
         logger.info(f"use lora alpha {lora_alpha}")
         lora_config = LoraConfig(
             r=64,
-            target_modules=PREVIEWER_LORA_MODULES,
+            target_modules=LCM_LORA_MODULES if use_lcm else PREVIEWER_LORA_MODULES,
             lora_alpha=lora_alpha,
             lora_dropout=0.0,
         )
 
-        self.unet.add_adapter(lora_config)
-        incompatible_keys = set_peft_model_state_dict(self.unet, lora_state_dict, adapter_name="default")
+        adapter_name = "lcm" if use_lcm else "previewer"
+        self.unet.add_adapter(lora_config, adapter_name)
+        incompatible_keys = set_peft_model_state_dict(self.unet, lora_state_dict, adapter_name=adapter_name)
         if incompatible_keys is not None:
             # check only for unexpected keys
             unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
@@ -1699,7 +1708,7 @@ class InstantIRPipeline(
             if needs_upcasting:
                 self.upcast_vae()
             for preview_latents in preview_row:
-                preview_latents = preview_latents.to(next(iter(self.vae.post_quant_conv.parameters())).dtype)
+                preview_latents = preview_latents.to(device=self.device, dtype=next(iter(self.vae.post_quant_conv.parameters())).dtype)
                 if has_latents_mean and has_latents_std:
                     latents_mean = (
                         torch.tensor(self.vae.config.latents_mean).view(1, 4, 1, 1).to(preview_latents.device, preview_latents.dtype)
