@@ -174,6 +174,9 @@ As described in our paper, the training of InstantIR is conducted in two stages.
 
 Other training hyperparameters we used in our experiments are provided in the corresponding `.sh` scripts. You can tune them according to your own needs.
 
+## 👏 Acknowledgment
+Our work is sponsored by [HuggingFace](https://huggingface.co) and [fal.ai](https://fal.ai).
+
 ## 🎓 Citation
 
 If InstantIR is helpful to your work, please cite our paper via:
