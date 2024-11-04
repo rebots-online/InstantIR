@@ -58,7 +58,7 @@ InstantIR is built on SDXL and DINOv2. You can download them either directly fro
 | :--- | :----------
 |[SDXL](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) | `hf_hub_download(repo_id="stabilityai/stable-diffusion-xl-base-1.0")`
 |[facebook/dinov2-large](https://huggingface.co/facebook/dinov2-large) | `hf_hub_download(repo_id="facebook/dinov2-large")`
-|[instantx/instantir](https://huggingface.co/facebook/dinov2-large) | `hf_hub_download(repo_id="InstantX/InstantIR")`
+|[InstantX/InstantIR](https://huggingface.co/InstantX/InstantIR) | `hf_hub_download(repo_id="InstantX/InstantIR")`
 
 Note: Make sure to import the package first with `from huggingface_hub import hf_hub_download` if you are using Python script.
 
