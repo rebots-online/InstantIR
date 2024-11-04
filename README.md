@@ -26,19 +26,23 @@
 
 <img src='assets/teaser_figure.png'>
 
-## 🔥 News
-- **10/15/2024** Code released!
+## 📢 News
+- **11/03/2024** 🔥 We provide a Gradio launching script for InstantIR, you can now deploy it on your local machine!
+- **11/02/2024** 🔥 InstantIR is now compatitble with 🧨 `diffusers`, you can utilize features from this fascinating package!
+- **10/15/2024** 🔥 Code and model released!
 
 ## 📝 TODOs:
-- Launch oneline demos.
+- [ ] Launch online demo
+- [x] Remove dependency on local `diffusers`
+- [x] Gradio launching script
 
 ## ✨ Usage
 <!-- ### Online Demo
 We provide a Gradio Demo on 🤗, click the button below and have fun with InstantIR! -->
 
-### Running locally
+### Quick start
 #### 1. Clone this repo and setting up environment
-```
+```sh
 git clone https://github.com/JY-Joy/InstantIR.git
 cd InstantIR
 conda create -n instantir python=3.9 -y
@@ -62,15 +66,16 @@ Note: Make sure to import the package first with `from huggingface_hub import hf
 
 You can run InstantIR inference using `infer.sh` with the following arguments specified.
 
-| Argument | Value
-| :--- | :----------
-|--sdxl_path | Path to your SDXL folder.
-|--vision_encoder_path | Path to your DINOv2 folder.
-|--instantir_path | Path to your InstantIR folder.
-|--test_path | Path to your input data.
-|--out_path | Path for InstantIR output.
+```sh
+infer.sh \
+    --sdxl_path <path_to_SDXL> \
+    --vision_encoder_path <path_to_DINOv2> \
+    --instantir_path <path_to_InstantIR> \
+    --test_path <path_to_input> \
+    --out_path <path_to_output>
+```
 
-See `infer.py` for additional config options. 
+See `infer.py` for more config options. 
 
 #### 4. Using tips
 
@@ -80,7 +85,8 @@ InstantIR is powerful, but with your help it can do better. InstantIR's flexible
 - **Local distortions**: set `--creative_start` to 0.6~0.8. This will let InstantIR render freely in the late diffusion process, where the high-frequency details are generated. Smaller `--creative_start` spares more spaces for creative restoration, but will diminish fidelity.
 - **Faster inference**: higher `--preview_start` and lower `--creative_start` can both reduce computational costs and accelerate InstantIR inference.
 
-Warning: these features are training-free and thus experimental. If you would like to try, we suggest to tune these parameters case-by-case.
+> [!CAUTION]
+> These features are training-free and thus experimental. If you would like to try, we suggest to tune these parameters case-by-case.
 
 ## ⚙️ Training
 
