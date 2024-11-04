@@ -1,0 +1,24 @@
+# After DCP training, distill the Previewer with DCP in `train_previewer_lora.py`:
+accelerate launch --num_processes <num_of_gpus> train_previewer_lora.py \
+    --output_dir <your/output/path> \
+    --train_data_dir <your/data/path> \
+    --logging_dir <your/logging/path> \
+    --pretrained_model_name_or_path <your/sdxl/path> \
+    --feature_extractor_path <your/dinov2/path> \
+    --pretrained_adapter_model_path <your/dcp/path> \
+    --losses_config_path config_files/losses.yaml \
+    --data_config_path config_files/IR_dataset.yaml \
+    --save_only_adapter \
+    --gradient_checkpointing \
+    --num_train_timesteps 1000 \
+    --num_ddim_timesteps 50 \
+    --lora_alpha 1 \
+    --mixed_precision fp16 \
+    --train_batch_size 32 \
+    --vae_encode_batch_size 16 \
+    --gradient_accumulation_steps 1 \
+    --learning_rate 1e-4 \
+    --lr_warmup_steps 1000 \
+    --lr_scheduler cosine \
+    --lr_num_cycles 1 \
+    --resume_from_checkpoint latest

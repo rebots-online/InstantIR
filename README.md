@@ -88,95 +88,91 @@ InstantIR is powerful, but with your help it can do better. InstantIR's flexible
 > [!CAUTION]
 > These features are training-free and thus experimental. If you would like to try, we suggest to tune these parameters case-by-case.
 
+### Use InstantIR with diffusers 🧨
+
+InstantIR is fully compatible with `diffusers` and is supported by all those powerful features in this package. You can directly load InstantIR via `diffusers` snippet:
+
+```py
+# !pip install diffusers opencv-python transformers accelerate
+import torch
+from PIL import Image
+
+from diffusers import DDPMScheduler
+from schedulers.lcm_single_step_scheduler import LCMSingleStepScheduler
+
+from module.ip_adapter.utils import load_adapter_to_pipe
+from pipelines.sdxl_instantir import InstantIRPipeline
+
+# suppose you have InstantIR weights under ./models
+instantir_path = f'./models'
+
+# load pretrained models
+pipe = InstantIRPipeline.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0', torch_dtype=torch.float16)
+
+# load adapter
+load_adapter_to_pipe(
+    pipe,
+    f"{instantir_path}/adapter.pt",
+    image_encoder_or_path = 'facebook/dinov2-large',
+)
+
+# load previewer lora
+pipe.prepare_previewers(instantir_path)
+pipe.scheduler = DDPMScheduler.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0', subfolder="scheduler")
+lcm_scheduler = LCMSingleStepScheduler.from_config(pipe.scheduler.config)
+
+# load aggregator weights
+pretrained_state_dict = torch.load(f"{instantir_path}/aggregator.pt")
+pipe.aggregator.load_state_dict(pretrained_state_dict)
+
+# send to GPU and fp16
+pipe.to(device='cuda', dtype=torch.float16)
+pipe.aggregator.to(device='cuda', dtype=torch.float16)
+```
+
+Then, you just need to call the `pipe` and InstantIR will handle your image!
+
+```py
+# load a broken image
+low_quality_image = Image.open('./assets/sculpture.png').convert("RGB")
+
+# InstantIR restoration
+image = pipe(
+    image=low_quality_image,
+    previewer_scheduler=lcm_scheduler,
+).images[0]
+```
+
+### Deploy local gradio demo
+
+We provide a python script to launch a local gradio demo of InstantIR, with basic and some advanced features implemented. Start by running the following command in your terminal:
+
+```sh
+INSTANTIR_PATH=<path_to_InstantIR> python gradio_demo/app.py
+```
+
+Then, visit your local demo via your browser at `http://localhost:7860`.
+
+
 ## ⚙️ Training
 
 ### Prepare data
 
 InstantIR is trained on [DIV2K](https://www.kaggle.com/datasets/joe1995/div2k-dataset), [Flickr2K](https://www.kaggle.com/datasets/daehoyang/flickr2k), [LSDIR](https://data.vision.ee.ethz.ch/yawli/index.html) and [FFHQ](https://www.kaggle.com/datasets/rahulbhalley/ffhq-1024x1024). We adopt dataset weighting to balance the distribution. You can config their weights in ```config_files/IR_dataset.yaml```. Download these training sets and put them under a same directory, which will be used in the following training configurations.
 
-As described in our paper, the training of InstantIR is conducted in two stages:
+### Two-stage training
+As described in our paper, the training of InstantIR is conducted in two stages. We provide corresponding `.sh` training scripts for each stage. Make sure you have the following arguments adapted to your own use case:
 
-### Stage1: Degradation Content Perceptor
+| Argument | Value
+| :--- | :----------
+| `--pretrained_model_name_or_path` | path to your SDXL folder
+| `--feature_extractor_path` | path to your DINOv2 folder
+| `--train_data_dir` | your training data directory
+| `--output_dir` | path to save model weights
+| `--logging_dir` | path to save logs
+| `<num_of_gpus>` | number of available GPUs
 
-Train the DCP module on frozen SDXL. We provide example 🤗 [accelerate](https://huggingface.co/docs/accelerate/index) training script in `train_stage1_adapter.py`. You can launch your own training with `accelerate`:
-
-```
-accelerate launch --num_processes <num_of_gpus> train_stage1_adapter.py \
-    --output_dir <your/output/path> \
-    --train_data_dir <your/data/path> \
-    --logging_dir <your/logging/path> \
-    --pretrained_model_name_or_path <your/sdxl/path> \
-    --feature_extractor_path <your/dinov2/path> \
-    --save_only_adapter \
-    --gradient_checkpointing \
-    --mixed_precision fp16 \
-    --train_batch_size 96 \
-    --gradient_accumulation_steps 1 \
-    --learning_rate 1e-4 \
-    --lr_warmup_steps 1000 \
-    --lr_scheduler cosine \
-    --lr_num_cycles 1 \
-    --resume_from_checkpoint latest
-```
-
-After DCP training, distill the Previewer with DCP in `train_previewer_lora.py`:
-
-```
-accelerate launch --num_processes <num_of_gpus> train_previewer_lora.py \
-    --output_dir <your/output/path> \
-    --train_data_dir <your/data/path> \
-    --logging_dir <your/logging/path> \
-    --pretrained_model_name_or_path <your/sdxl/path> \
-    --feature_extractor_path <your/dinov2/path> \
-    --pretrained_adapter_model_path <your/dcp/path> \
-    --losses_config_path config_files/losses.yaml \
-    --data_config_path config_files/IR_dataset.yaml \
-    --save_only_adapter \
-    --gradient_checkpointing \
-    --num_train_timesteps 1000 \
-    --num_ddim_timesteps 50 \
-    --lora_alpha 1 \
-    --mixed_precision fp16 \
-    --train_batch_size 32 \
-    --vae_encode_batch_size 16 \
-    --gradient_accumulation_steps 1 \
-    --learning_rate 1e-4 \
-    --lr_warmup_steps 1000 \
-    --lr_scheduler cosine \
-    --lr_num_cycles 1 \
-    --resume_from_checkpoint latest
-```
-
-
-### Stage2: Latents Aggregator
-
-Finally, train the Aggregator with frozen DCP and Previewer in `train_stage2_aggregator.py`:
-
-```
-accelerate launch --num_processes <num_of_gpus> train_stage2_aggregator.py \
-    --output_dir <your/output/path> \
-    --train_data_dir <your/data/path> \
-    --logging_dir <your/logging/path> \
-    --pretrained_model_name_or_path <your/sdxl/path> \
-    --feature_extractor_path <your/dinov2/path> \
-    --pretrained_adapter_model_path <your/dcp/path> \
-    --pretrained_lcm_lora_path <your/previewer_lora/path> \
-    --losses_config_path config_files/losses.yaml \
-    --data_config_path config_files/IR_dataset.yaml \
-    --image_drop_rate 0.0 \
-    --text_drop_rate 0.85 \
-    --cond_drop_rate 0.15 \
-    --save_only_adapter \
-    --gradient_checkpointing \
-    --mixed_precision fp16 \
-    --train_batch_size 6 \
-    --gradient_accumulation_steps 2 \
-    --learning_rate 1e-4 \
-    --lr_warmup_steps 1000 \
-    --lr_scheduler cosine \
-    --lr_num_cycles 1 \
-    --resume_from_checkpoint latest
-```
+Other training hyperparameters we used in our experiments are provided in the corresponding `.sh` scripts. You can tune them according to your own needs.
 
 ## 🎓 Citation
 

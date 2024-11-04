@@ -1,0 +1,24 @@
+# Stage 2: train aggregator
+accelerate launch --num_processes <num_of_gpus> train_stage2_aggregator.py \
+    --output_dir <your/output/path> \
+    --train_data_dir <your/data/path> \
+    --logging_dir <your/logging/path> \
+    --pretrained_model_name_or_path <your/sdxl/path> \
+    --feature_extractor_path <your/dinov2/path> \
+    --pretrained_adapter_model_path <your/dcp/path> \
+    --pretrained_lcm_lora_path <your/previewer_lora/path> \
+    --losses_config_path config_files/losses.yaml \
+    --data_config_path config_files/IR_dataset.yaml \
+    --image_drop_rate 0.0 \
+    --text_drop_rate 0.85 \
+    --cond_drop_rate 0.15 \
+    --save_only_adapter \
+    --gradient_checkpointing \
+    --mixed_precision fp16 \
+    --train_batch_size 6 \
+    --gradient_accumulation_steps 2 \
+    --learning_rate 1e-4 \
+    --lr_warmup_steps 1000 \
+    --lr_scheduler cosine \
+    --lr_num_cycles 1 \
+    --resume_from_checkpoint latest

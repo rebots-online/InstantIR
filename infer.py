@@ -137,7 +137,10 @@ def main(args, device):
     processed_imgs = os.listdir(os.path.join(args.out_path, post_fix))
     lq_files = []
     lq_batch = []
-    all_inputs = os.listdir(args.test_path)
+    if os.path.isfile(args.test_path):
+        all_inputs = [args.test_path.split("/")[-1]]
+    else:
+        all_inputs = os.listdir(args.test_path)
     all_inputs.sort()
     for file in all_inputs:
         if file in processed_imgs:
