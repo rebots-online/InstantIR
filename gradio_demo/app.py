@@ -1,7 +1,10 @@
 import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import torch
 import numpy as np
-import app as gr
+import gradio as gr
 from PIL import Image
 
 from diffusers import DDPMScheduler
@@ -12,12 +15,30 @@ from pipelines.sdxl_instantir import InstantIRPipeline
 
 from huggingface_hub import hf_hub_download
 
-if not os.path.exists("models/adapter.pt"):
-    hf_hub_download(repo_id="InstantX/InstantIR", filename="models/adapter.pt", local_dir=".")
-if not os.path.exists("models/aggregator.pt"):
-    hf_hub_download(repo_id="InstantX/InstantIR", filename="models/aggregator.pt", local_dir=".")
-if not os.path.exists("models/previewer_lora_weights.bin"):
-    hf_hub_download(repo_id="InstantX/InstantIR", filename="models/previewer_lora_weights.bin", local_dir=".")
+def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
+               pad_to_max_side=False, mode=Image.BILINEAR, base_pixel_number=64):
+
+    w, h = input_image.size
+    if size is not None:
+        w_resize_new, h_resize_new = size
+    else:
+        # ratio = min_side / min(h, w)
+        # w, h = round(ratio*w), round(ratio*h)
+        ratio = max_side / max(h, w)
+        input_image = input_image.resize([round(ratio*w), round(ratio*h)], mode)
+        w_resize_new = (round(ratio * w) // base_pixel_number) * base_pixel_number
+        h_resize_new = (round(ratio * h) // base_pixel_number) * base_pixel_number
+    input_image = input_image.resize([w_resize_new, h_resize_new], mode)
+
+    if pad_to_max_side:
+        res = np.ones([max_side, max_side, 3], dtype=np.uint8) * 255
+        offset_x = (max_side - w_resize_new) // 2
+        offset_y = (max_side - h_resize_new) // 2
+        res[offset_y:offset_y+h_resize_new, offset_x:offset_x+w_resize_new] = np.array(input_image)
+        input_image = Image.fromarray(res)
+    return input_image
+
+instantir_path = os.environ['INSTANTIR_PATH']
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 sdxl_repo_id = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -39,12 +60,12 @@ pipe = InstantIRPipeline.from_pretrained(
 print("Loading LQ-Adapter...")
 load_adapter_to_pipe(
     pipe,
-    "models/adapter.pt",
+    f"{instantir_path}/adapter.pt",
     dinov2_repo_id,
 )
 
 # Prepare previewer
-lora_alpha = pipe.prepare_previewers("models")
+lora_alpha = pipe.prepare_previewers(instantir_path)
 print(f"use lora alpha {lora_alpha}")
 lora_alpha = pipe.prepare_previewers("latent-consistency/lcm-lora-sdxl", use_lcm=True)
 print(f"use lora alpha {lora_alpha}")
@@ -60,7 +81,7 @@ lcm_scheduler = LCMSingleStepScheduler.from_config(pipe.scheduler.config)
 # Load weights.
 print("Loading checkpoint...")
 aggregator_state_dict = torch.load(
-    "models/aggregator.pt",
+    f"{instantir_path}/aggregator.pt",
     map_location="cpu"
 )
 pipe.aggregator.load_state_dict(aggregator_state_dict, strict=True)
