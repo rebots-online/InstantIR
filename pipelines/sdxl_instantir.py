@@ -1377,6 +1377,7 @@ class InstantIRPipeline(
             image = image * self.vae.config.scaling_factor
             if needs_upcasting:
                 self.vae.to(dtype=torch.float16)
+                image = image.to(dtype=torch.float16)
         else:
             height = int(height * self.vae_scale_factor)
             width = int(width * self.vae_scale_factor)

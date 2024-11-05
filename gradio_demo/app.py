@@ -72,11 +72,6 @@ pipe.to(device=device, dtype=torch_dtype)
 pipe.scheduler = DDPMScheduler.from_pretrained(sdxl_repo_id, subfolder="scheduler")
 lcm_scheduler = LCMSingleStepScheduler.from_config(pipe.scheduler.config)
 
-pipe.scheduler = DDPMScheduler.from_pretrained(
-    sdxl_repo_id,
-    subfolder="scheduler"
-)
-lcm_scheduler = LCMSingleStepScheduler.from_config(pipe.scheduler.config)
 # Load weights.
 print("Loading checkpoint...")
 aggregator_state_dict = torch.load(
@@ -126,7 +121,11 @@ def instantir_restore(
 
     if isinstance(guidance_end, int):
         guidance_end = guidance_end / steps
+    elif guidance_end > 1.0:
+        guidance_end = guidance_end / steps
     if isinstance(preview_start, int):
+        preview_start = preview_start / steps
+    elif preview_start > 1.0:
         preview_start = preview_start / steps
     lq = [resize_img(lq.convert("RGB"), size=(width, height))]
     generator = torch.Generator(device=device).manual_seed(seed)
