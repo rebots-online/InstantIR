@@ -14,15 +14,6 @@ REFERNCE_FACIAL_POINTS_RELATIVE = np.array([[38.29459953, 51.69630051],
                                             ]) / 112 # Original points are 112 * 96 added 8 to the x axis to make it 112 * 112
 
 
-def verify_load(missing_keys, unexpected_keys):
-    if len(unexpected_keys) > 0:
-        raise RuntimeError(f"Found unexpected keys in state dict while loading the encoder:\n{unexpected_keys}")
-    
-    filtered_missing = [key for key in missing_keys if not "extract_kv" in key]
-    if len(filtered_missing) > 0:
-        raise RuntimeError(f"Missing keys in state dict while loading the encoder:\n{filtered_missing}")
-
-
 @torch.no_grad()
 def detect_face(images: torch.Tensor, mtcnn: torch.nn.Module) -> torch.Tensor:
     """
