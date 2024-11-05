@@ -43,6 +43,7 @@ instantir_path = os.environ['INSTANTIR_PATH']
 device = "cuda" if torch.cuda.is_available() else "cpu"
 sdxl_repo_id = "stabilityai/stable-diffusion-xl-base-1.0"
 dinov2_repo_id = "facebook/dinov2-large"
+lcm_repo_id = "latent-consistency/lcm-lora-sdxl"
 
 if torch.cuda.is_available():
     torch_dtype = torch.float16
@@ -50,7 +51,7 @@ else:
     torch_dtype = torch.float32
 
 # Load pretrained models.
-print("Loading SDXL...")
+print("Initializing pipeline...")
 pipe = InstantIRPipeline.from_pretrained(
     sdxl_repo_id,
     torch_dtype=torch_dtype,
@@ -67,7 +68,7 @@ load_adapter_to_pipe(
 # Prepare previewer
 lora_alpha = pipe.prepare_previewers(instantir_path)
 print(f"use lora alpha {lora_alpha}")
-lora_alpha = pipe.prepare_previewers("latent-consistency/lcm-lora-sdxl", use_lcm=True)
+lora_alpha = pipe.prepare_previewers(lcm_repo_id, use_lcm=True)
 print(f"use lora alpha {lora_alpha}")
 pipe.to(device=device, dtype=torch_dtype)
 pipe.scheduler = DDPMScheduler.from_pretrained(sdxl_repo_id, subfolder="scheduler")
@@ -122,8 +123,8 @@ def instantir_restore(
         if "lcm" not in pipe.unet.active_adapters():
             pipe.unet.set_adapter('lcm')
     else:
-        if "default" not in pipe.unet.active_adapters():
-            pipe.unet.set_adapter('default')
+        if "previewer" not in pipe.unet.active_adapters():
+            pipe.unet.set_adapter('previewer')
 
     if isinstance(guidance_end, int):
         guidance_end = guidance_end / steps
@@ -135,7 +136,6 @@ def instantir_restore(
         i * (1000//steps) + pipe.scheduler.config.steps_offset for i in range(0, steps)
     ]
     timesteps = timesteps[::-1]
-    start_timestep = timesteps[0]
 
     prompt = PROMPT if len(prompt)==0 else prompt
     neg_prompt = NEG_PROMPT
