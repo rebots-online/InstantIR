@@ -13,8 +13,6 @@ from schedulers.lcm_single_step_scheduler import LCMSingleStepScheduler
 from module.ip_adapter.utils import load_adapter_to_pipe
 from pipelines.sdxl_instantir import InstantIRPipeline
 
-from huggingface_hub import hf_hub_download
-
 def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
                pad_to_max_side=False, mode=Image.BILINEAR, base_pixel_number=64):
 

@@ -1,12 +1,6 @@
 python infer.py \
-    --sdxl_path /share/huangrenyuan/model_zoo/diffusion/stable-diffusion-xl-base-1.0 \
-    --vision_encoder_path /share/huangrenyuan/model_zoo/vis_backbone/dinov2_large \
-    --instantir_path /share/huangrenyuan/logs/instantir \
-    --num_inference_steps 50 \
-    --batch_size 7 \
-    --cfg 9.0 \
-    --out_path /share/huangrenyuan/dreamclear \
-    --test_path /share/huangrenyuan/samples/dreamclear \
-    --post_fix test_50_cfg9_noadares_.5preview_batch7_prompt \
-    --height 1024 \
-    --preview_start 0.5
+    --sdxl_path path/to/sdxl \
+    --vision_encoder_path path/to/dinov2_large \
+    --instantir_path path/to/instantir \
+    --test_path path/to/input \
+    --out_path path/to/output
