@@ -37,15 +37,6 @@ def create_custom_forward(module):
 
     return custom_forward
 
-def get_adapter_trainable_params(encoder):
-    adapter_layers = get_adapter_layers(encoder)
-    trainable_params = []
-    for layer in adapter_layers:
-        trainable_params.extend(layer.to_v.parameters())
-        trainable_params.extend(layer.to_k.parameters())
-
-    return trainable_params
-
 def maybe_grad_checkpoint(resnet, attn, hidden_states, temb, encoder_hidden_states, adapter_hidden_states, do_ckpt=True):
 
     if do_ckpt:
