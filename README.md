@@ -10,10 +10,8 @@
 <a href='https://arxiv.org/abs/2410.06551'><img src='https://img.shields.io/badge/arXiv-2410.06551-b31b1b.svg'>
 <a href='https://jy-joy.github.io/InstantIR/'><img src='https://img.shields.io/badge/Project-Website-green'></a>
 <a href='https://huggingface.co/InstantX/InstantIR'><img src='https://img.shields.io/static/v1?label=Model&message=Huggingface&color=orange'></a> 
-<!-- [![GitHub](https://img.shields.io/github/stars/InstantID/InstantID?style=social)](https://github.com/InstantID/InstantID) -->
-
-<!-- <a href='https://huggingface.co/spaces/InstantX/InstantID'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue'></a>
-[![ModelScope](https://img.shields.io/badge/ModelScope-Studios-blue)](https://modelscope.cn/studios/instantx/InstantID/summary)
+<a href='https://huggingface.co/spaces/JOY-Huang/InstantIR'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow'></a>
+<!-- [![ModelScope](https://img.shields.io/badge/ModelScope-Studios-blue)](https://modelscope.cn/studios/instantx/InstantID/summary)
 [![Open in OpenXLab](https://cdn-static.openxlab.org.cn/app-center/openxlab_app.svg)](https://openxlab.org.cn/apps/detail/InstantX/InstantID) -->
 
 </div>
@@ -27,12 +25,14 @@
 <img src='assets/teaser_figure.png'>
 
 ## 📢 News
+- **11/07/2024** 🔥 Our [Space Demo](https://huggingface.co/spaces/JOY-Huang/InstantIR) is online, thanks [HuggingFace🤗](https://huggingface.co)! Play with **InstantIR** and leave your feedbacks!
 - **11/03/2024** 🔥 We provide a Gradio launching script for InstantIR, you can now deploy it on your local machine!
-- **11/02/2024** 🔥 InstantIR is now compatitble with 🧨 `diffusers`, you can utilize features from this fascinating package!
+- **11/02/2024** 🔥 InstantIR is now compatitble with `diffusers`🧨, you can utilize features from this fascinating package!
 - **10/15/2024** 🔥 Code and model released!
 
 ## 📝 TODOs:
-- [ ] Launch online demo
+- [ ] Tutorial video
+- [x] Launch online demo
 - [x] Remove dependency on local `diffusers`
 - [x] Gradio launching script
 
@@ -173,6 +173,15 @@ As described in our paper, the training of InstantIR is conducted in two stages.
 | `<num_of_gpus>` | number of available GPUs
 
 Other training hyperparameters we used in our experiments are provided in the corresponding `.sh` scripts. You can tune them according to your own needs.
+
+## 💪 Community Resoucres
+We sincerely appreciate the community's contribution to InstantIR. Here are some excellent works from the community:
+
+### Duplicate Demo
+[fffiloni/InstantIR](https://huggingface.co/spaces/fffiloni/InstantIR)
+
+### ComfyUI
+[smthemex/ComfyUI_InstantIR_Wrapper](https://github.com/smthemex/ComfyUI_InstantIR_Wrapper)
 
 ## 👏 Acknowledgment
 Our work is sponsored by [HuggingFace](https://huggingface.co) and [fal.ai](https://fal.ai).
