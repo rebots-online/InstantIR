@@ -28,19 +28,33 @@ def name_unet_submodules(unet):
         recursive_find_module(name, module)
 
 
-def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
+def resize_img(input_image, max_side=1024, min_side=768, width=None, height=None,
                pad_to_max_side=False, mode=Image.BILINEAR, base_pixel_number=64):
 
     w, h = input_image.size
-    if size is not None:
-        w_resize_new, h_resize_new = size
+    # Prepare output size
+    if width is not None and height is not None:
+        out_w, out_h = width, height
+    elif width is not None:
+        out_w = width
+        out_h = round(h * width / w)
+    elif height is not None:
+        out_h = height
+        out_w = round(w * height / h)
     else:
-        # ratio = min_side / min(h, w)
-        # w, h = round(ratio*w), round(ratio*h)
-        ratio = max_side / max(h, w)
-        input_image = input_image.resize([round(ratio*w), round(ratio*h)], mode)
-        w_resize_new = (round(ratio * w) // base_pixel_number) * base_pixel_number
-        h_resize_new = (round(ratio * h) // base_pixel_number) * base_pixel_number
+        out_w, out_h = w, h
+
+    # Resize input to runtime size
+    w, h = out_w, out_h
+    if min(w, h) < min_side:
+        ratio = min_side / min(w, h)
+        w, h = round(ratio * w), round(ratio * h)
+    if max(w, h) > max_side:
+        ratio = max_side / max(w, h)
+        w, h = round(ratio * w), round(ratio * h)
+    # Resize to cope with UNet and VAE operations
+    w_resize_new = (w // base_pixel_number) * base_pixel_number
+    h_resize_new = (h // base_pixel_number) * base_pixel_number
     input_image = input_image.resize([w_resize_new, h_resize_new], mode)
 
     if pad_to_max_side:
@@ -49,7 +63,7 @@ def resize_img(input_image, max_side=1280, min_side=1024, size=None,
         offset_y = (max_side - h_resize_new) // 2
         res[offset_y:offset_y+h_resize_new, offset_x:offset_x+w_resize_new] = np.array(input_image)
         input_image = Image.fromarray(res)
-    return input_image
+    return input_image, (out_w, out_h)
 
 
 def tensor_to_pil(images):
@@ -156,11 +170,16 @@ def main(args, device):
 
     for lq_batch in lq_files:
         generator = torch.Generator(device=device).manual_seed(args.seed)
-        pil_lqs = [Image.open(os.path.join(args.test_path, file)) for file in lq_batch]
-        if args.width is None or args.height is None:
-            lq = [resize_img(pil_lq.convert("RGB"), size=None) for pil_lq in pil_lqs]
-        else:
-            lq = [resize_img(pil_lq.convert("RGB"), size=(args.width, args.height)) for pil_lq in pil_lqs]
+        lq = []
+        out_sizes = []
+        for lq_img in lq_batch:
+            if os.path.isfile(args.test_path):
+                lq_pil = Image.open(args.test_path)
+            else:
+                lq_pil = Image.open(os.path.join(args.test_path, lq_img))
+            lq_pil, out_size = resize_img(lq_pil.convert("RGB"), width=args.width, height=args.height)
+            lq.append(lq_pil)
+            out_sizes.append(out_size)
         timesteps = None
         if args.denoising_start < 1000:
             timesteps = [
@@ -202,11 +221,8 @@ def main(args, device):
             control_guidance_end=args.creative_start,
         ).images
 
-        if args.save_preview_row:
-            for i, lcm_image in enumerate(image[1]):
-                lcm_image.save(f"./lcm/{i}.png")
-        for i, rec_image in enumerate(image):
-            rec_image.save(f"{args.out_path}/{post_fix}/{lq_batch[i]}")
+        for i, (rec_image, out_size) in enumerate(zip(image, out_sizes)):
+            rec_image.resize([out_size[0], out_size[1]], Image.BILINEAR).save(f"{args.out_path}/{post_fix}/{lq_batch[i]}")
 
 
 if __name__ == "__main__":
@@ -334,11 +350,6 @@ if __name__ == "__main__":
         help="Revision of pretrained model identifier from huggingface.co/models.",
     )
     parser.add_argument(
-        "--save_preview_row",
-        action="store_true",
-        help="Whether or not to save the intermediate lcm outputs.",
-    )
-    parser.add_argument(
         "--prompt",
         type=str,
         default='',
@@ -373,9 +384,5 @@ if __name__ == "__main__":
     )
     parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training.")
     args = parser.parse_args()
-    args.height = args.height or args.width
-    args.width = args.width or args.height
-    if args.height is not None and (args.width % 64 != 0 or args.height % 64 != 0):
-        raise ValueError("Image resolution must be divisible by 64.")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     main(args, device)
