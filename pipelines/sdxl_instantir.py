@@ -110,7 +110,6 @@ EXAMPLE_DOC_STRING = """
         >>> # send to GPU and fp16
         >>> pipe.to(device="cuda", dtype=torch.float16)
         >>> pipe.aggregator.to(device="cuda", dtype=torch.float16)
-        >>> pipe.enable_model_cpu_offload()
 
         >>> # load a broken image
         >>> low_quality_image = Image.open('path/to/your-image').convert("RGB")
